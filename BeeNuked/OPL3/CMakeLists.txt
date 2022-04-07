@@ -1,0 +1,11 @@
+set(YMF262_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
+set(YMF262_SOURCES
+	ymf262.cpp)
+
+set(YMF262_HEADERS
+	ymf262.h)
+
+add_library(ymf262 STATIC ${YMF262_SOURCES} ${YMF262_HEADERS})
+target_include_directories(ymf262 PUBLIC
+	${YMF262_INCLUDE_DIR})

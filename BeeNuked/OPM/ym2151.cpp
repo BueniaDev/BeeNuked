@@ -16,7 +16,7 @@
     along with BeeNuked.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-// BeeNuked-YM2151 (WIP)
+// BeeNuked-YM2151
 // Chip Name: YM2151 (OPM)
 // Chip Used In: Various arcade machines (Capcom CPS1, Sega System 16x/Super Scaler, etc.), Sharp X68000, Atari 7800, SFG-01 and (early ) SFG-05 (MSX)
 // Interesting Trivia:
@@ -26,9 +26,14 @@
 //
 // BueniaDev's Notes:
 //
-// This core is a huge WIP at the moment, and a lot of the YM2151's core features are completely unimplemented.
-// As such, expect a lot of things to sound completely incorrect (and, because the envelope generator is 
-// amongst the completely unimplemented features, kinda loud, as well).
+// Even though several of the YM2151's core features, including the envelope generator,
+// are implemented here, the following features are still completely unimplemented:
+// 
+// LFO/AMS/PMS/noise generator
+// Port reads (?)
+// Timers
+// CSM mode
+// IRQ-related functionality
 //
 // However, work is being done on all of those fronts, so don't lose hope here!
 
@@ -39,7 +44,8 @@ namespace beenuked
 {
     YM2151::YM2151()
     {
-
+	init_tables();
+	reset();
     }
 
     YM2151::~YM2151()
@@ -106,6 +112,18 @@ namespace beenuked
 	return exp_output;
     }
 
+    int YM2151::calc_rate(int p_rate, int rks)
+    {
+	if (p_rate == 0)
+	{
+	    return 0;
+	}
+	else
+	{
+	    return min(63, ((p_rate * 2) + rks));
+	}
+    }
+
     uint32_t YM2151::get_freqnum(int keycode, int keyfrac, int32_t delta)
     {
 	int adjusted_keycode = (keycode - (keycode >> 2));
@@ -117,6 +135,24 @@ namespace beenuked
     {
 	uint32_t phase_result = oper.freq_num;
 	uint32_t phase_shifted = ((phase_result << oper.block) >> 2);
+
+	int detune_index = (oper.detune & 0x3);
+	bool detune_sign = testbit(oper.detune, 2);
+
+	uint32_t detune_increment = detune_table[oper.keycode][detune_index];
+
+	if (detune_sign)
+	{
+	    phase_shifted -= detune_increment;
+
+	    // The detune increment can cause the phase value
+	    // to underflow, so we mask the phase value to 17 bits
+	    phase_shifted &= 0x1FFFF;
+	}
+	else
+	{
+	    phase_shifted += detune_increment;
+	}
 
 	if (oper.multiply == 0)
 	{
@@ -131,14 +167,70 @@ namespace beenuked
 	oper.phase_freq = phase_shifted;
     }
 
+    void YM2151::update_ksr(opm_operator &oper)
+    {
+	oper.ksr_val = (oper.keycode >> oper.key_scaling);
+    }
+
+    void YM2151::calc_oper_rate(opm_operator &oper)
+    {
+	int p_rate = 0;
+
+	switch (oper.env_state)
+	{
+	    case opm_oper_state::Attack: p_rate = oper.attack_rate; break;
+	    case opm_oper_state::Decay: p_rate = oper.decay_rate; break;
+	    case opm_oper_state::Sustain: p_rate = oper.sustain_rate; break;
+	    // Extend 4-bit release rate to 5 bits
+	    case opm_oper_state::Release: p_rate = ((oper.release_rate << 1) | 1); break;
+	    default: p_rate = 0; break;
+	}
+
+	oper.env_rate = calc_rate(p_rate, oper.ksr_val);
+    }
+
+    void YM2151::update_frequency(opm_channel &channel, opm_operator &oper)
+    {
+	int32_t detune_delta = detune2_table[oper.detune2];
+
+	// Convert the coarse detune cents value to 1/64ths
+	int16_t delta = ((detune_delta * 64 + 50) / 100);
+
+	oper.freq_num = get_freqnum(channel.keycode, channel.keyfrac, delta);
+	oper.block = channel.block;
+	oper.keycode = ((channel.block << 2) | (channel.keycode >> 2));
+	update_phase(oper);
+	update_ksr(oper);
+    }
+
     void YM2151::update_frequency(opm_channel &channel)
     {
 	for (auto &oper : channel.opers)
 	{
-	    oper.freq_num = get_freqnum(channel.keycode, channel.keyfrac, 0);
-	    oper.block = channel.block;
-	    update_phase(oper);
+	    update_frequency(channel, oper);
 	}
+    }
+
+    void YM2151::start_envelope(opm_operator &oper)
+    {
+	if (calc_rate(oper.attack_rate, oper.ksr_val) >= 62)
+	{
+	    oper.env_output = 0;
+	    oper.env_state = (oper.sustain_level == 0) ? opm_oper_state::Sustain : opm_oper_state::Decay;
+	}
+	else
+	{
+	    if (oper.env_output > 0)
+	    {
+		oper.env_state = opm_oper_state::Attack;
+	    }
+	    else
+	    {
+		oper.env_state = (oper.sustain_level == 0) ? opm_oper_state::Sustain : opm_oper_state::Decay;
+	    }
+	}
+
+	calc_oper_rate(oper);
     }
 
     void YM2151::key_on(opm_channel &channel, opm_operator &oper)
@@ -146,6 +238,8 @@ namespace beenuked
 	if (!oper.is_keyon)
 	{
 	    oper.is_keyon = true;
+	    start_envelope(oper);
+	    oper.phase_counter = 0;
 	}
     }
 
@@ -154,6 +248,12 @@ namespace beenuked
 	if (oper.is_keyon)
 	{
 	    oper.is_keyon = false;
+
+	    if (oper.env_state < opm_oper_state::Release)
+	    {
+		oper.env_state = opm_oper_state::Release;
+		calc_oper_rate(oper);
+	    }
 	}
     }
 
@@ -166,6 +266,69 @@ namespace beenuked
 	}
     }
 
+    void YM2151::clock_envelope(opm_channel &channel)
+    {
+	for (auto &oper : channel.opers)
+	{
+	    uint32_t counter_shift_val = counter_shift_table[oper.env_rate];
+
+	    if ((env_clock % (1 << counter_shift_val)) == 0)
+	    {
+		int update_cycle = ((env_clock >> counter_shift_val) & 0x7);
+		auto atten_inc = att_inc_table[oper.env_rate][update_cycle];
+
+		switch (oper.env_state)
+		{
+		    case opm_oper_state::Attack:
+		    {
+			oper.env_output = ((~oper.env_output * atten_inc) >> 4);
+
+			if (oper.env_output <= 0)
+			{
+			    oper.env_output = 0;
+			    oper.env_state = (oper.sustain_level == 0) ? opm_oper_state::Sustain : opm_oper_state::Decay;
+			    calc_oper_rate(oper);
+			}
+		    }
+		    break;
+		    case opm_oper_state::Decay:
+		    {
+			oper.env_output += atten_inc;
+
+			if (oper.env_output >= oper.sustain_level)
+			{
+			    oper.env_state = opm_oper_state::Sustain;
+			    calc_oper_rate(oper);
+			}
+		    }
+		    break;
+		    case opm_oper_state::Sustain:
+		    {
+			oper.env_output += atten_inc;
+
+			if (oper.env_output >= 0x400)
+			{
+			    oper.env_output = 0x3FF;
+			}
+		    }
+		    break;
+		    case opm_oper_state::Release:
+		    {
+			oper.env_output += atten_inc;
+
+			if (oper.env_output >= 0x400)
+			{
+			    oper.env_output = 0x3FF;
+			    oper.env_state = opm_oper_state::Off;
+			}
+		    }
+		    break;
+		    default: break;
+		}
+	    }
+	}
+    }
+
     void YM2151::channel_output(opm_channel &channel)
     {
 	auto &oper_one = channel.opers[0];
@@ -173,17 +336,25 @@ namespace beenuked
 	auto &oper_three = channel.opers[2];
 	auto &oper_four = channel.opers[3];
 
-	uint32_t oper1_atten = ((oper_one.is_keyon) ? oper_one.total_level : 0x3FF);
+	int32_t feedback = 0;
 
-	int32_t oper1_output = calc_output(oper_one.phase_output, 0, oper1_atten);
+	if (channel.feedback != 0)
+	{
+	    feedback = ((oper_one.outputs[0] + oper_one.outputs[1]) >> (10 - channel.feedback));
+	}
+
+	uint32_t oper1_atten = (oper_one.total_level + oper_one.env_output);
+
+	oper_one.outputs[1] = oper_one.outputs[0];
+	oper_one.outputs[0] = calc_output(oper_one.phase_output, feedback, oper1_atten);
 	
 	uint32_t algorithm_combo = algorithm_combinations[channel.algorithm];
 
 	array<int16_t, 8> opout;
 	opout[0] = 0;
-	opout[1] = oper1_output;
+	opout[1] = oper_one.outputs[0];
 
-	uint32_t oper2_atten = ((oper_two.is_keyon) ? oper_two.total_level : 0x3FF);
+	uint32_t oper2_atten = (oper_two.total_level + oper_two.env_output);
 
 	int16_t oper2_output = opout[(algorithm_combo & 1)];
 
@@ -191,7 +362,7 @@ namespace beenuked
 	opout[2] = calc_output(oper_two.phase_output, oper2_mod, oper2_atten);
 	opout[5] = (opout[1] + opout[2]);
 
-	uint32_t oper3_atten = ((oper_three.is_keyon) ? oper_three.total_level : 0x3FF);
+	uint32_t oper3_atten = (oper_three.total_level + oper_three.env_output);
 
 	int32_t oper3_output = opout[((algorithm_combo >> 1) & 0x7)];
 
@@ -200,7 +371,7 @@ namespace beenuked
 	opout[6] = (opout[1] + opout[3]);
 	opout[7] = (opout[2] + opout[3]);
 
-	uint32_t oper4_atten = ((oper_four.is_keyon) ? oper_four.total_level : 0x3FF);
+	uint32_t oper4_atten = (oper_four.total_level + oper_four.env_output);
 
 	int32_t oper4_output = opout[((algorithm_combo >> 4) & 0x7)];
 
@@ -325,9 +496,9 @@ namespace beenuked
 		{
 		    case 0x00:
 		    {
-			cout << "Writing to YM2151 channel " << dec << ch_num << " feedback/panning register" << endl;
 			channel.is_pan_right = testbit(data, 7);
 			channel.is_pan_left = testbit(data, 6);
+			channel.feedback = ((data >> 4) & 0x7);
 			channel.algorithm = (data & 0x7);
 		    }
 		    break;
@@ -354,7 +525,7 @@ namespace beenuked
 	    break;
 	    case 0x40:
 	    {
-		cout << "Writing to DT1 register of YM2151 channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+		ch_oper.detune = ((data >> 4) & 0x7);
 		ch_oper.multiply = (data & 0xF);
 		update_phase(ch_oper);
 	    }
@@ -366,22 +537,29 @@ namespace beenuked
 	    break;
 	    case 0x80:
 	    {
-		cout << "Writing to KS/AR register of YM2151 channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+		ch_oper.key_scaling = (3 - (data >> 6));
+		ch_oper.attack_rate = (data & 0x1F);
 	    }
 	    break;
 	    case 0xA0:
 	    {
-		cout << "Writing to AMS-EN/D1R register of YM2151 channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+		cout << "Writing to AMS-EN register of YM2151 channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+		ch_oper.decay_rate = (data & 0x1F);
 	    }
 	    break;
 	    case 0xC0:
 	    {
-		cout << "Writing to DT2/D2R register of YM2151 channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+		ch_oper.detune2 = ((data >> 6) & 0x3);
+		ch_oper.sustain_rate = (data & 0x1F);
+		update_frequency(channel, ch_oper);
 	    }
 	    break;
 	    case 0xE0:
 	    {
-		cout << "Writing to D1L/RR register of YM2151 channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+		int sl_rate = (data >> 4);
+		int sus_level = (sl_rate == 15) ? 31 : sl_rate;
+		ch_oper.sustain_level = (sus_level << 5);
+		ch_oper.release_rate = (data & 0xF);
 	    }
 	    break;
 	    default: break;
@@ -391,6 +569,18 @@ namespace beenuked
     uint32_t YM2151::get_sample_rate(uint32_t clock_rate)
     {
 	return (clock_rate / 64);
+    }
+
+    void YM2151::reset()
+    {
+	for (auto &channel : channels)
+	{
+	    for (auto &oper : channel.opers)
+	    {
+		oper.env_output = 0x3FF;
+		oper.env_state = opm_oper_state::Off;
+	    }
+	}
     }
 
     void YM2151::writeIO(int port, uint8_t data)
@@ -405,8 +595,26 @@ namespace beenuked
 	}
     }
 
+    void YM2151::clock_channel_eg()
+    {
+	env_clock += 1;
+
+	for (auto &channel : channels)
+	{
+	    clock_envelope(channel);
+	}
+    }
+
     void YM2151::clockchip()
     {
+	env_timer += 1;
+
+	if (env_timer == 3)
+	{
+	    env_timer = 0;
+	    clock_channel_eg();
+	}
+
 	for (auto &channel : channels)
 	{
 	    clock_phase(channel);
@@ -418,21 +626,21 @@ namespace beenuked
 	}
     }
 
-    array<int16_t, 2> YM2151::get_sample()
+    vector<int32_t> YM2151::get_samples()
     {
 	array<int32_t, 2> output = {0, 0};
 
-	for (int i = 3; i < 4; i++)
+	for (int i = 0; i < 8; i++)
 	{
 	    output[0] += (channels[i].is_pan_left) ? channels[i].output : 0;
 	    output[1] += (channels[i].is_pan_right) ? channels[i].output : 0;
 	}
 
-	array<int16_t, 2> final_samples = {0, 0};
+	vector<int32_t> final_samples;
 
 	for (int i = 0; i < 2; i++)
 	{
-	    final_samples[i] = dac_ym3014(output[i]);
+	    final_samples.push_back(dac_ym3014(output[i]));
 	}
 
 	return final_samples;
