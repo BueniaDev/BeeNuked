@@ -40,7 +40,7 @@ namespace beenuked
 	    ~YM2151();
 
 	    uint32_t get_sample_rate(uint32_t clock_rate);
-	    void reset();
+	    void init();
 	    void writeIO(int port, uint8_t data);
 	    void clockchip();
 	    vector<int32_t> get_samples();
@@ -52,12 +52,15 @@ namespace beenuked
 		return ((reg >> bit) & 1) ? true : false;
 	    }
 
+	    void reset();
+
 	    uint8_t chip_address = 0;
 
 	    void init_tables();
 
 	    array<uint32_t, 256> sine_table;
 	    array<uint32_t, 256> exp_table;
+	    array<array<int16_t, 256>, 4> lfo_table;
 
 	    void write_reg(uint8_t reg, uint8_t data);
 
@@ -84,6 +87,11 @@ namespace beenuked
 		int detune = 0;
 		int detune2 = 0;
 
+		bool lfo_enable = false;
+
+		int lfo_pm_sens = 0;
+		int lfo_am_sens = 0;
+
 		int attack_rate = 0;
 		int decay_rate = 0;
 		int sustain_rate = 0;
@@ -104,11 +112,14 @@ namespace beenuked
 
 	    struct opm_channel
 	    {
+		int number = 0;
 		int keyfrac = 0;
 		int keycode = 0;
 		int block = 0;
 		int feedback = 0;
 		int algorithm = 0;
+		int lfo_pm_sens = 0;
+		int lfo_am_sens = 0;
 		bool is_pan_left = false;
 		bool is_pan_right = false;
 		int32_t output = 0;
@@ -117,6 +128,25 @@ namespace beenuked
 
 	    uint32_t env_timer = 0;
 	    uint32_t env_clock = 0;
+	    uint32_t lfo_counter = 0;
+
+	    uint32_t lfo_rate = 0;
+	    bool lfo_reset = false;
+
+	    int lfo_pm_sens = 0;
+	    int lfo_am_sens = 0;
+	    int lfo_waveform = 0;
+
+	    int noise_freq = 0;
+	    bool noise_enable = false;
+
+	    uint32_t noise_lfsr = 1;
+	    uint8_t noise_counter = 0;
+	    uint8_t noise_state = 0;
+	    uint8_t noise_lfo = 0;
+
+	    uint8_t lfo_am = 0;
+	    int32_t lfo_raw_pm = 0;
 
 	    array<opm_channel, 8> channels;
 
@@ -124,15 +154,18 @@ namespace beenuked
 	    void update_frequency(opm_channel &channel, opm_operator &oper);
 	    void update_phase(opm_operator &oper);
 	    void update_ksr(opm_operator &oper);
+	    void update_lfo(opm_channel &channel);
 	    void calc_oper_rate(opm_operator &oper);
 	    void start_envelope(opm_operator &oper);
 
 	    void clock_phase(opm_channel &channel);
 	    void clock_envelope(opm_channel &channel);
+	    void clock_lfo();
 	    void clock_channel_eg();
 	    void channel_output(opm_channel &channel);
 
 	    uint32_t get_freqnum(int keycode, int keyfrac, int32_t delta);
+	    uint32_t get_lfo_am(opm_channel &channel);
 
 	    int32_t calc_output(uint32_t phase, int32_t mod, uint32_t env);
 

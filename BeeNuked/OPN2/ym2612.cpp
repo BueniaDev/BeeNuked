@@ -114,8 +114,7 @@ namespace beenuked
 
     int32_t YM2612::dac_discontinuity(int32_t val)
     {
-	// if (chip_type == OPN2Type::YM2612_Chip)
-	if (true)
+	if (is_ym2612())
 	{
 	    return (val < 0) ? (val - 2) : (val + 3);
 	}
@@ -995,14 +994,23 @@ namespace beenuked
 	channel.output = ch_output;
     }
 
-    void YM2612::init()
+    void YM2612::init(OPN2Type chiptype)
     {
+	set_chip_type(chiptype);
 	reset();
     }
 
     uint32_t YM2612::get_sample_rate(uint32_t clock_rate)
     {
 	return (clock_rate / 144);
+    }
+
+    void YM2612::set_chip_type(OPN2Type type)
+    {
+	if (chip_type != type)
+	{
+	    chip_type = type;
+	}
     }
 
     void YM2612::reset()
@@ -1133,8 +1141,7 @@ namespace beenuked
 	{
 	    int32_t sample = (output[i] * 128);
 
-	    // if (chip_type == OPN2Type::YM2612_Chip)
-	    if (true)
+	    if (is_ym2612())
 	    {
 		mixed_samples[i] = (sample * 64 / (6 * 65));
 	    }

@@ -33,14 +33,20 @@ using namespace std;
 
 namespace beenuked
 {
+    enum OPN2Type : int
+    {
+	YM2612_Chip = 0,
+	YM3438_Chip = 1,
+    };
+
     class YM2612
     {
 	public:
 	    YM2612();
 	    ~YM2612();
 
-	    void init();
 	    uint32_t get_sample_rate(uint32_t clock_rate);
+	    void init(OPN2Type chiptype = YM2612_Chip);
 	    void writeIO(int port, uint8_t data);
 	    void clockchip();
 	    vector<int32_t> get_samples();
@@ -52,7 +58,15 @@ namespace beenuked
 		return ((reg >> bit) & 1) ? true : false;
 	    }
 
+	    void set_chip_type(OPN2Type type);
 	    void reset();
+
+	    OPN2Type chip_type;
+
+	    bool is_ym2612()
+	    {
+		return (chip_type == YM2612_Chip);
+	    }
 
 	    uint8_t chip_address = 0;
 	    bool is_addr_a1 = false;

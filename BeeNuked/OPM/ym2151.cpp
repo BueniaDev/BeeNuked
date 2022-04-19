@@ -28,8 +28,7 @@
 //
 // Even though several of the YM2151's core features, including the envelope generator,
 // are implemented here, the following features are still completely unimplemented:
-// 
-// LFO/AMS/PMS/noise generator
+//
 // Port reads (?)
 // Timers
 // CSM mode
@@ -44,8 +43,7 @@ namespace beenuked
 {
     YM2151::YM2151()
     {
-	init_tables();
-	reset();
+
     }
 
     YM2151::~YM2151()
@@ -73,6 +71,27 @@ namespace beenuked
 
 	    uint32_t result = uint32_t((res_normalized * 2048.f) + 0.5);
 	    exp_table[i] = result;
+	}
+
+	for (int index = 0; index < 256; index++)
+	{
+	    // Waveform 0 is a sawtooth wave
+	    uint8_t am = (255 - index);
+	    int8_t pm = int8_t(index);
+	    lfo_table[0][index] = (am | (pm << 8));
+
+	    // Waveform 1 is a square wave
+	    am = testbit(index, 7) ? 0 : 0xFF;
+	    pm = int8_t(am ^ 0x80);
+	    lfo_table[1][index] = (am | (pm << 8));
+
+	    // Waveform 2 is a triangle wave
+	    am = testbit(index, 7) ? (index << 1) : ((255 - index) << 1);
+	    pm = int8_t(testbit(index, 6) ? am : ~am);
+	    lfo_table[2][index] = (am | (pm << 8));
+
+	    // Waveform 3 is noise, which is filled in dynamically
+	    lfo_table[3][index] = 0;
 	}
     }
 
@@ -189,12 +208,36 @@ namespace beenuked
 	oper.env_rate = calc_rate(p_rate, oper.ksr_val);
     }
 
+    void YM2151::update_lfo(opm_channel &channel)
+    {
+	for (auto &oper : channel.opers)
+	{
+	    oper.lfo_am_sens = channel.lfo_am_sens;
+	    oper.lfo_pm_sens = channel.lfo_pm_sens;
+	    update_frequency(channel, oper);
+	}
+    }
+
     void YM2151::update_frequency(opm_channel &channel, opm_operator &oper)
     {
 	int32_t detune_delta = detune2_table[oper.detune2];
 
 	// Convert the coarse detune cents value to 1/64ths
 	int16_t delta = ((detune_delta * 64 + 50) / 100);
+
+	uint32_t pm_sens = channel.lfo_pm_sens;
+
+	if (pm_sens != 0)
+	{
+	    if (pm_sens < 6)
+	    {
+		delta += (lfo_raw_pm >> (6 - pm_sens));
+	    }
+	    else
+	    {
+		delta += (lfo_raw_pm << (pm_sens - 5));
+	    }
+	}
 
 	oper.freq_num = get_freqnum(channel.keycode, channel.keyfrac, delta);
 	oper.block = channel.block;
@@ -261,6 +304,7 @@ namespace beenuked
     {
 	for (auto &oper : channel.opers)
 	{
+	    update_frequency(channel, oper);
 	    oper.phase_counter = ((oper.phase_counter + oper.phase_freq) & 0xFFFFF);
 	    oper.phase_output = (oper.phase_counter >> 10);
 	}
@@ -329,6 +373,53 @@ namespace beenuked
 	}
     }
 
+    void YM2151::clock_lfo()
+    {
+	uint32_t freq = noise_freq;
+
+	for (int rep = 0; rep < 2; rep++)
+	{
+	    noise_lfsr <<= 1;
+	    noise_lfsr |= (testbit(noise_lfsr, 17) ^ testbit(noise_lfsr, 14) ^ 1);
+
+	    if (noise_counter++ >= freq)
+	    {
+		noise_counter = 0;
+		noise_state = testbit(noise_lfsr, 17);
+	    }
+	}
+
+	uint8_t rate = lfo_rate;
+	lfo_counter += ((0x10 | (rate & 0xF)) << (rate >> 4));
+
+	if (lfo_reset)
+	{
+	    lfo_counter = 0;
+	}
+
+	uint32_t lfo = ((lfo_counter >> 22) & 0xFF);
+
+	uint32_t lfo_noise = ((noise_lfsr >> 17) & 0xFF);
+	lfo_table[3][((lfo + 1) & 0xFF)] = (lfo_noise | (lfo_noise << 8));
+
+	int32_t ampm = lfo_table[lfo_waveform][lfo];
+
+	lfo_am = ((ampm & 0xFF) * lfo_am_sens) >> 7;
+	lfo_raw_pm = (((ampm >> 8) * int32_t(lfo_pm_sens)) >> 7);
+    }
+
+    uint32_t YM2151::get_lfo_am(opm_channel &channel)
+    {
+	uint32_t am_sens = channel.lfo_am_sens;
+
+	if (am_sens == 0)
+	{
+	    return 0;
+	}
+
+	return (lfo_am << (am_sens - 1));
+    }
+
     void YM2151::channel_output(opm_channel &channel)
     {
 	auto &oper_one = channel.opers[0];
@@ -343,7 +434,14 @@ namespace beenuked
 	    feedback = ((oper_one.outputs[0] + oper_one.outputs[1]) >> (10 - channel.feedback));
 	}
 
-	uint32_t oper1_atten = (oper_one.total_level + oper_one.env_output);
+	uint32_t oper1_am = 0;
+
+	if (oper_one.lfo_enable)
+	{
+	    oper1_am += get_lfo_am(channel);
+	}
+
+	uint32_t oper1_atten = (oper_one.total_level + oper_one.env_output + oper1_am);
 
 	oper_one.outputs[1] = oper_one.outputs[0];
 	oper_one.outputs[0] = calc_output(oper_one.phase_output, feedback, oper1_atten);
@@ -354,7 +452,14 @@ namespace beenuked
 	opout[0] = 0;
 	opout[1] = oper_one.outputs[0];
 
-	uint32_t oper2_atten = (oper_two.total_level + oper_two.env_output);
+	uint32_t oper2_am = 0;
+
+	if (oper_two.lfo_enable)
+	{
+	    oper2_am += get_lfo_am(channel);
+	}
+
+	uint32_t oper2_atten = (oper_two.total_level + oper_two.env_output + oper2_am);
 
 	int16_t oper2_output = opout[(algorithm_combo & 1)];
 
@@ -362,7 +467,14 @@ namespace beenuked
 	opout[2] = calc_output(oper_two.phase_output, oper2_mod, oper2_atten);
 	opout[5] = (opout[1] + opout[2]);
 
-	uint32_t oper3_atten = (oper_three.total_level + oper_three.env_output);
+	uint32_t oper3_am = 0;
+
+	if (oper_three.lfo_enable)
+	{
+	    oper3_am += get_lfo_am(channel);
+	}
+
+	uint32_t oper3_atten = (oper_three.total_level + oper_three.env_output + oper3_am);
 
 	int32_t oper3_output = opout[((algorithm_combo >> 1) & 0x7)];
 
@@ -371,12 +483,31 @@ namespace beenuked
 	opout[6] = (opout[1] + opout[3]);
 	opout[7] = (opout[2] + opout[3]);
 
+	uint32_t oper4_am = 0;
+
+	if (oper_four.lfo_enable)
+	{
+	    oper4_am += get_lfo_am(channel);
+	}
+
 	uint32_t oper4_atten = (oper_four.total_level + oper_four.env_output);
 
 	int32_t oper4_output = opout[((algorithm_combo >> 4) & 0x7)];
 
 	int32_t phase_mod = ((oper4_output >> 1) & 0x3FF);
-	int32_t ch_output = calc_output(oper_four.phase_output, phase_mod, oper4_atten);
+
+	int32_t ch_output = 0;
+
+	if (noise_enable && (channel.number == 7))
+	{
+	    int32_t noise_atten = ((oper4_atten ^ 0x3FF) << 1);
+	    ch_output = testbit(noise_state, 0) ? -noise_atten : noise_atten;
+	}
+	else
+	{
+	    oper4_atten += oper4_am;
+	    ch_output = calc_output(oper_four.phase_output, phase_mod, oper4_atten);
+	}
 
 	// YM2151 is full 14-bit with no intermediate clipping
 	if (testbit(algorithm_combo, 7))
@@ -418,7 +549,7 @@ namespace beenuked
 		{
 		    case 0x01:
 		    {
-			cout << "Writing to test/LFO register" << endl;
+			lfo_reset = testbit(data, 1);
 		    }
 		    break;
 		    case 0x08:
@@ -441,7 +572,8 @@ namespace beenuked
 		    break;
 		    case 0x0F:
 		    {
-			cout << "Writing to noise register" << endl;
+			noise_enable = testbit(data, 7);
+			noise_freq = (data & 0x1F);
 		    }
 		    break;
 		    case 0x10:
@@ -466,24 +598,25 @@ namespace beenuked
 		    break;
 		    case 0x18:
 		    {
-			cout << "Writing to LFO frequency register" << endl;
+			lfo_rate = data;
 		    }
 		    break;
 		    case 0x19:
 		    {
 			if (testbit(data, 7))
 			{
-			    cout << "Writing to PMD register" << endl;
+			    lfo_pm_sens = (data & 0x7F);
 			}
 			else
 			{
-			    cout << "Writing to AMD register" << endl;
+			    lfo_am_sens = (data & 0x7F);
 			}
 		    }
 		    break;
 		    case 0x1B:
 		    {
-			cout << "Writing to CT2/CT1/LFO waveform register" << endl;
+			cout << "Writing to CT2/CT1 register" << endl;
+			lfo_waveform = (data & 0x3);
 		    }
 		    break;
 		    default: break;
@@ -517,7 +650,9 @@ namespace beenuked
 		    break;
 		    case 0x18:
 		    {
-			cout << "Writing to YM2151 channel " << dec << ch_num << " PMS/AMS register" << endl;
+			channel.lfo_pm_sens = ((data >> 4) & 0x7);
+			channel.lfo_am_sens = (data & 0x3);
+			update_lfo(channel);
 		    }
 		    break;
 		}
@@ -543,7 +678,7 @@ namespace beenuked
 	    break;
 	    case 0xA0:
 	    {
-		cout << "Writing to AMS-EN register of YM2151 channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+		ch_oper.lfo_enable = testbit(data, 7);
 		ch_oper.decay_rate = (data & 0x1F);
 	    }
 	    break;
@@ -571,8 +706,37 @@ namespace beenuked
 	return (clock_rate / 64);
     }
 
+    void YM2151::init()
+    {
+	reset();
+    }
+
     void YM2151::reset()
     {
+	init_tables();
+
+	env_timer = 0;
+	env_clock = 0;
+	lfo_counter = 0;
+
+	lfo_rate = 0;
+	lfo_reset = 0;
+
+	lfo_pm_sens = 0;
+	lfo_am_sens = 0;
+	lfo_waveform = 0;
+	noise_freq = 0;
+	noise_enable = false;
+
+	noise_lfsr = 1;
+	noise_state = 0;
+	noise_lfo = 0;
+
+	for (int i = 0; i < 8; i++)
+	{
+	    channels[i].number = i;
+	}
+
 	for (auto &channel : channels)
 	{
 	    for (auto &oper : channel.opers)
@@ -608,6 +772,7 @@ namespace beenuked
     void YM2151::clockchip()
     {
 	env_timer += 1;
+	clock_lfo();
 
 	if (env_timer == 3)
 	{
