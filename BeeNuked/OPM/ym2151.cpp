@@ -189,6 +189,7 @@ namespace beenuked
     void YM2151::update_ksr(opm_operator &oper)
     {
 	oper.ksr_val = (oper.keycode >> oper.key_scaling);
+	calc_oper_rate(oper);
     }
 
     void YM2151::calc_oper_rate(opm_operator &oper)
@@ -674,6 +675,7 @@ namespace beenuked
 	    {
 		ch_oper.key_scaling = (3 - (data >> 6));
 		ch_oper.attack_rate = (data & 0x1F);
+		update_ksr(ch_oper);
 	    }
 	    break;
 	    case 0xA0:

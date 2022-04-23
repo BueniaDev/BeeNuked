@@ -62,8 +62,11 @@ namespace beenuked
 
     int64_t YMF271::calc_slot_volume(opx_slot &slot)
     {
-	// TODO: Properly implement volume
-	return 65536;
+	int64_t volume = 0;
+
+	int64_t env_volume = 65536;
+	volume = ((env_volume * total_level_table[slot.total_level]) >> 16);
+	return volume;
     }
 
     void YMF271::write_fm(int bank, uint8_t reg, uint8_t data)
@@ -99,8 +102,6 @@ namespace beenuked
 	{
 	    case 0:
 	    {
-		cout << "4-slot mode" << endl;
-
 		if (bank == 0)
 		{
 		    is_sync_mode = true;
@@ -109,8 +110,6 @@ namespace beenuked
 	    break;
 	    case 1:
 	    {
-		cout << "2x 2-slot mode" << endl;
-
 		if ((bank == 0) || (bank == 1))
 		{
 		    is_sync_mode = true;
@@ -140,7 +139,6 @@ namespace beenuked
 		    for (int i = 0; i < 4; i++)
 		    {
 			int slot_num = ((12 * i) + group_num);
-			cout << "Writing value of " << hex << int(data) << " to YMF271 slot " << dec << slot_num << " four-slot register of " << hex << int(reg_addr) << endl;
 			write_fm_reg(slot_num, reg_addr, data);
 		    }
 		}
@@ -153,7 +151,6 @@ namespace beenuked
 			for (int i = 0; i < 2; i++)
 			{
 			    int slot_num = ((12 * (i * 2)) + group_num);
-			    cout << "Writing value of " << hex << int(data) << " to YMF271 slot " << dec << slot_num << " two-slot register of " << hex << int(reg_addr) << endl;
 			    write_fm_reg(slot_num, reg_addr, data);
 			}
 		    }
@@ -162,7 +159,6 @@ namespace beenuked
 			for (int i = 0; i < 2; i++)
 			{
 			    int slot_num = ((12 * ((i * 2) + 1)) + group_num);
-			    cout << "Writing value of " << hex << int(data) << " to YMF271 slot " << dec << slot_num << " two-slot register of " << hex << int(reg_addr) << endl;
 			    write_fm_reg(slot_num, reg_addr, data);
 			}
 		    }
@@ -183,7 +179,6 @@ namespace beenuked
 	else
 	{
 	    int slot_num = ((12 * bank) + group_num);
-	    cout << "Writing value of " << hex << int(data) << " to YMF271 slot " << dec << slot_num << " register of " << hex << int(reg_addr) << endl;
 	    write_fm_reg(slot_num, reg_addr, data);
 	}
     }
@@ -227,7 +222,8 @@ namespace beenuked
 	{
 	    case 0x0:
 	    {
-		cout << "Setting EXT bits of slot " << dec << int(slot_num) << endl;
+		slot.ext_enable = testbit(data, 7);
+		slot.ext_out = ((data >> 3) & 0xF);
 
 		if (testbit(data, 0))
 		{

@@ -93,6 +93,9 @@ namespace beenuked
 		int srcnote = 0;
 		int srcb = 0;
 
+		int ext_out = 0;
+		bool ext_enable = false;
+
 		int waveform = 0;
 		bool is_key_on = false;
 		array<int, 4> ch_level = {0, 0, 0, 0};
