@@ -41,6 +41,7 @@ namespace beenuked
 
 	    uint32_t get_sample_rate(uint32_t clock_rate);
 	    void init();
+	    uint8_t readIO(int port);
 	    void writeIO(int port, uint8_t data);
 	    void clockchip();
 	    vector<int32_t> get_samples();
@@ -161,6 +162,7 @@ namespace beenuked
 	    void clock_phase(opm_channel &channel);
 	    void clock_envelope(opm_channel &channel);
 	    void clock_lfo();
+	    void clock_timers();
 	    void clock_channel_eg();
 	    void channel_output(opm_channel &channel);
 
@@ -173,6 +175,27 @@ namespace beenuked
 
 	    void key_on(opm_channel &channel, opm_operator &oper);
 	    void key_off(opm_channel &channel, opm_operator &oper);
+
+	    uint16_t timera_freq = 0;
+	    uint8_t timerb_freq = 0;
+	    int timerb_subcounter = 0;
+
+	    uint16_t timera_counter = 0;
+	    uint8_t timerb_counter = 0;
+
+	    bool is_timera_running = false;
+	    bool is_timerb_running = false;
+
+	    bool is_timera_loaded = false;
+	    bool is_timerb_loaded = false;
+
+	    bool is_timera_enabled = false;
+	    bool is_timerb_enabled = false;
+
+	    void set_status_bit(int bit);
+	    void reset_status_bit(int bit);
+
+	    uint8_t opm_status = 0;
 
 	    #include "opm_tables.inl"
 	    #include "ym3014.inl"

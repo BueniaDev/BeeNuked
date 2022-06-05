@@ -29,8 +29,6 @@
 // Even though several of the YM2151's core features, including the envelope generator,
 // are implemented here, the following features are still completely unimplemented:
 //
-// Port reads (?)
-// Timers
 // CSM mode
 // IRQ-related functionality
 //
@@ -529,6 +527,88 @@ namespace beenuked
 	channel.output = ch_output;
     }
 
+    void YM2151::set_status_bit(int bit)
+    {
+	opm_status |= (1 << bit);
+
+	/*
+	if (irq_inter != NULL)
+	{
+	    irq_inter->handle_irq(true);
+	}
+	*/
+    }
+
+    void YM2151::reset_status_bit(int bit)
+    {
+	opm_status &= ~(1 << bit);
+
+	/*
+	if (irq_inter != NULL)
+	{
+	    irq_inter->handle_irq(false);
+	}
+	*/
+    }
+
+    void YM2151::clock_timers()
+    {
+	// TODO: Implement CSM mode
+	if (is_timera_running)
+	{
+	    if (timera_counter != 1023)
+	    {
+		timera_counter += 1;
+	    }
+	    else
+	    {
+		if (is_timera_loaded)
+		{
+		    is_timera_loaded = false;
+		}
+		else if (is_timera_enabled)
+		{
+		    set_status_bit(0);
+		}
+
+		timera_counter = timera_freq;
+	    }
+	}
+
+	timerb_subcounter += 1;
+
+	if (timerb_subcounter == 16)
+	{
+	    timerb_subcounter = 0;
+
+	    if (is_timerb_running)
+	    {
+		if (timerb_counter != 255)
+		{
+		    timerb_counter += 1;
+		}
+		else
+		{
+		    if (is_timerb_loaded)
+		    {
+			is_timerb_loaded = false;
+		    }
+		    else if (is_timerb_enabled)
+		    {
+			set_status_bit(1);
+		    }
+
+		    timerb_counter = timerb_freq;
+		}
+	    }
+	}
+	else if (is_timerb_loaded)
+	{
+	    is_timerb_loaded = false;
+	    timerb_counter = timerb_freq;
+	}
+    }
+
     void YM2151::write_reg(uint8_t reg, uint8_t data)
     {
 	int reg_group = (reg & 0xE0);
@@ -579,22 +659,49 @@ namespace beenuked
 		    break;
 		    case 0x10:
 		    {
-			cout << "Writing to MSB of timer A" << endl;
+			timera_freq = ((timera_freq & 0x3) | (data << 2));
 		    }
 		    break;
 		    case 0x11:
 		    {
-			cout << "Writing to LSB of timer A" << endl;
+			timera_freq = ((timera_freq & 0x3FC) | (data & 0x3));
 		    }
 		    break;
 		    case 0x12:
 		    {
-			cout << "Writing to timer B" << endl;
+			timerb_freq = data;
 		    }
 		    break;
 		    case 0x14:
 		    {
-			cout << "Writing to CSM/IRQ flag reset/IRQ enable/timer register" << endl;
+			cout << "Writing to CSM/IRQ flag reset/IRQ enable register" << endl;
+
+			if (testbit(data, 0) && !is_timera_running)
+			{
+			    timera_counter = 1023;
+			    is_timera_loaded = true;
+			}
+
+			if (testbit(data, 1) && !is_timerb_running)
+			{
+			    timerb_counter = 255;
+			    is_timerb_loaded = true;
+			}
+
+			is_timera_running = testbit(data, 0);
+			is_timerb_running = testbit(data, 1);
+			is_timera_enabled = testbit(data, 2);
+			is_timerb_enabled = testbit(data, 3);
+
+			if (testbit(data, 4))
+			{
+			    reset_status_bit(0);
+			}
+
+			if (testbit(data, 5))
+			{
+			    reset_status_bit(1);
+			}
 		    }
 		    break;
 		    case 0x18:
@@ -747,6 +854,20 @@ namespace beenuked
 		oper.env_state = opm_oper_state::Off;
 	    }
 	}
+
+	timera_counter = 1023;
+	timerb_counter = 255;
+    }
+
+    uint8_t YM2151::readIO(int port)
+    {
+	uint8_t data = 0xFF;
+	if ((port & 1) == 1)
+	{
+	    data = opm_status;
+	}
+
+	return data;
     }
 
     void YM2151::writeIO(int port, uint8_t data)
@@ -773,8 +894,10 @@ namespace beenuked
 
     void YM2151::clockchip()
     {
-	env_timer += 1;
+	clock_timers();
 	clock_lfo();
+
+	env_timer += 1;
 
 	if (env_timer == 3)
 	{
