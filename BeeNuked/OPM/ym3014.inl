@@ -21,7 +21,7 @@
 
 #if defined(__GNUC__)
 
-uint8_t beenuked_clz(uint32_t value)
+inline uint8_t beenuked_clz(uint32_t value)
 {
     if (value == 0)
     {
@@ -33,7 +33,7 @@ uint8_t beenuked_clz(uint32_t value)
 
 #elif defined(_MSC_VER)
 
-uint8_t beenuked_clz(uint32_t value)
+inline uint8_t beenuked_clz(uint32_t value)
 {
      unsigned long index;
      return _BitScanReverse(&index, value) ? uint8_t(31U - index) : 32U;
@@ -62,7 +62,7 @@ inline uint8_t beenuked_clz(uint32_t value)
 
 #endif
 
-int16_t encode_fp(int32_t val)
+inline int16_t encode_fp(int32_t val)
 {
     if (val < -32768)
     {
@@ -85,13 +85,13 @@ int16_t encode_fp(int32_t val)
     return (((exponent << 10) | (mantissa & 0x3FF)) ^ 0x200);
 }
 
-int16_t decode_fp(int16_t val)
+inline int16_t decode_fp(int16_t val)
 {
     val ^= 0x1E00;
     return (int16_t(val << 6) >> ((val >> 10) & 0x7));
 }
 
-int16_t dac_ym3014(int32_t val)
+inline int16_t dac_ym3014(int32_t val)
 {
     if (val < -32768)
     {
