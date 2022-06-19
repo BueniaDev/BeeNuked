@@ -674,7 +674,7 @@ namespace beenuked
 		    break;
 		    case 0x14:
 		    {
-			cout << "Writing to CSM/IRQ flag reset/IRQ enable register" << endl;
+			// cout << "Writing to CSM/IRQ flag reset/IRQ enable register" << endl;
 
 			if (testbit(data, 0) && !is_timera_running)
 			{
