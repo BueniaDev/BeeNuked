@@ -141,11 +141,41 @@ namespace beenuked
 	}
     }
 
-    uint32_t YM2151::get_freqnum(int keycode, int keyfrac, int32_t delta)
+    uint32_t YM2151::get_freqnum(int &block, int keycode, int keyfrac, int32_t delta)
     {
 	int adjusted_keycode = (keycode - (keycode >> 2));
 	int32_t eff_freq = ((adjusted_keycode << 6) | keyfrac);
-	return opm_freqnums[(eff_freq + delta)];
+	eff_freq += delta;
+
+	if (uint32_t(eff_freq) >= 768)
+	{
+	    if (eff_freq < 0)
+	    {
+		eff_freq += 768;
+
+		if (block-- == 0)
+		{
+		    return opm_freqnums.at(0);
+		}
+	    }
+	    else
+	    {
+		eff_freq -= 768;
+
+		if (eff_freq >= 768)
+		{
+		    block += 1;
+		    eff_freq -= 768;
+		}
+
+		if (block++ >= 7)
+		{
+		    return opm_freqnums.at(767);
+		}
+	    }
+	}
+
+	return opm_freqnums.at(eff_freq);
     }
 
     void YM2151::update_phase(opm_operator &oper)
@@ -222,7 +252,7 @@ namespace beenuked
 	int32_t detune_delta = detune2_table[oper.detune2];
 
 	// Convert the coarse detune cents value to 1/64ths
-	int16_t delta = ((detune_delta * 64 + 50) / 100);
+	int32_t delta = ((detune_delta * 64 + 50) / 100);
 
 	uint32_t pm_sens = channel.lfo_pm_sens;
 
@@ -238,9 +268,9 @@ namespace beenuked
 	    }
 	}
 
-	oper.freq_num = get_freqnum(channel.keycode, channel.keyfrac, delta);
 	oper.block = channel.block;
-	oper.keycode = ((channel.block << 2) | (channel.keycode >> 2));
+	oper.freq_num = get_freqnum(oper.block, channel.keycode, channel.keyfrac, delta);
+	oper.keycode = ((oper.block << 2) | (channel.keycode >> 2));
 	update_phase(oper);
 	update_ksr(oper);
     }
@@ -770,7 +800,7 @@ namespace beenuked
 	    {
 		ch_oper.detune = ((data >> 4) & 0x7);
 		ch_oper.multiply = (data & 0xF);
-		update_phase(ch_oper);
+		update_frequency(channel, ch_oper);
 	    }
 	    break;
 	    case 0x60:

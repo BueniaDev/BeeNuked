@@ -166,7 +166,7 @@ namespace beenuked
 	    void clock_channel_eg();
 	    void channel_output(opm_channel &channel);
 
-	    uint32_t get_freqnum(int keycode, int keyfrac, int32_t delta);
+	    uint32_t get_freqnum(int &block, int keycode, int keyfrac, int32_t delta);
 	    uint32_t get_lfo_am(opm_channel &channel);
 
 	    int32_t calc_output(uint32_t phase, int32_t mod, uint32_t env);
