@@ -684,7 +684,7 @@ namespace beenuked
 		    case 0x0F:
 		    {
 			noise_enable = testbit(data, 7);
-			noise_freq = (data & 0x1F);
+			noise_freq = (0x1F - (data & 0x1F));
 		    }
 		    break;
 		    case 0x10:
@@ -769,7 +769,7 @@ namespace beenuked
 		    {
 			channel.is_pan_right = testbit(data, 7);
 			channel.is_pan_left = testbit(data, 6);
-			channel.feedback = ((data >> 4) & 0x7);
+			channel.feedback = ((data >> 3) & 0x7);
 			channel.algorithm = (data & 0x7);
 		    }
 		    break;
@@ -950,7 +950,7 @@ namespace beenuked
     {
 	array<int32_t, 2> output = {0, 0};
 
-	for (int i = 0; i < 8; i++)
+	for (int i = 7; i < 8; i++)
 	{
 	    output[0] += (channels[i].is_pan_left) ? channels[i].output : 0;
 	    output[1] += (channels[i].is_pan_right) ? channels[i].output : 0;
