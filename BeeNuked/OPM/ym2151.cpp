@@ -950,7 +950,7 @@ namespace beenuked
     {
 	array<int32_t, 2> output = {0, 0};
 
-	for (int i = 7; i < 8; i++)
+	for (int i = 0; i < 8; i++)
 	{
 	    output[0] += (channels[i].is_pan_left) ? channels[i].output : 0;
 	    output[1] += (channels[i].is_pan_right) ? channels[i].output : 0;
