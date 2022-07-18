@@ -33,6 +33,7 @@ using namespace std;
 
 namespace beenuked
 {
+    using beeopmfunc = function<void(int)>;
     class YM2151
     {
 	public:
@@ -41,6 +42,7 @@ namespace beenuked
 
 	    uint32_t get_sample_rate(uint32_t clock_rate);
 	    void init();
+	    void setPortCallback(beeopmfunc cb);
 	    uint8_t readIO(int port);
 	    void writeIO(int port, uint8_t data);
 	    void clockchip();
@@ -56,6 +58,8 @@ namespace beenuked
 	    void reset();
 
 	    uint8_t chip_address = 0;
+
+	    beeopmfunc port_func;
 
 	    void init_tables();
 

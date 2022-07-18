@@ -753,7 +753,13 @@ namespace beenuked
 		    break;
 		    case 0x1B:
 		    {
-			cout << "Writing to CT2/CT1 register" << endl;
+			int ct_reg = ((data >> 6) & 0x3);
+
+			if (port_func)
+			{
+			    port_func(ct_reg);
+			}
+
 			lfo_waveform = (data & 0x3);
 		    }
 		    break;
@@ -887,6 +893,11 @@ namespace beenuked
 
 	timera_counter = 1023;
 	timerb_counter = 255;
+    }
+
+    void YM2151::setPortCallback(beeopmfunc cb)
+    {
+	port_func = cb;
     }
 
     uint8_t YM2151::readIO(int port)
