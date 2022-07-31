@@ -116,7 +116,7 @@ namespace beenuked
     {
 	if (is_ym2612())
 	{
-	    return (val < 0) ? (val - 2) : (val + 3);
+	    return (val < 0) ? (val - 3) : (val + 4);
 	}
 	else
 	{
@@ -703,7 +703,7 @@ namespace beenuked
 	if (!is_lfo_enabled)
 	{
 	    lfo_counter = 0;
-	    lfo_am = 0;
+	    lfo_am = 0x3F;
 	    lfo_raw_pm = 0;
 	    return;
 	}

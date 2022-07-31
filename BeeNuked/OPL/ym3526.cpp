@@ -735,7 +735,8 @@ namespace beenuked
 	if (channel.is_decay_algorithm)
 	{
 	    int32_t car_output = calc_output(car_slot.phase_output, 0, car_env, car_slot.wave_sel);
-	    int32_t ch_output = (mod_slot.outputs[0] + (car_output >> 1));
+	    int32_t ch_output = (mod_slot.outputs[0] >> 1);
+	    ch_output += (car_output >> 1);
 	    channel.output = clamp(ch_output, -32768, 32767);
 	}
 	else
