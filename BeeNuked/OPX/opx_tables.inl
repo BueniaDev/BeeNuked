@@ -16,6 +16,35 @@
     along with BeeNuked.  If not, see <https://www.gnu.org/licenses/>.
 */
 
+// Opout values (for 2-operator FM):
+// 0 = 0
+// 1 = Slot 1 output
+
+// Algorithm op (for 2-operator FM):
+// --x: 1=Use slot 3 for feedback, 0=Use slot 1 for feedback
+// -x-: Use opout[x] as slot 3 input
+// x--: Include opout[1] in final sum
+
+#define create_algorithm_2op(feedback, op3in, op1out) \
+	(feedback | (op3in << 1) | (op1out << 2))
+
+array<uint16_t, 4> algorithm_2op_combinations = 
+{
+    // <--------|
+    // +--[S1]--|--+--[S3]-->
+    create_algorithm_2op(0, 1, 0),
+    // <-----------------|
+    // +--[S1]--+--[S3]--|-->
+    create_algorithm_2op(1, 1, 0), 
+    //  --[S3]-----|
+    // <--------|  |
+    // +--[S1]--|--+-->
+    create_algorithm_2op(0, 0, 1),
+    // <--------|  +--[S3]--|
+    // +--[S1]--|--|--------+-->
+    create_algorithm_2op(0, 1, 1)
+};
+
 
 array<int, 16> fm_table = 
 {

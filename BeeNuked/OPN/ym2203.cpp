@@ -955,7 +955,7 @@ namespace beenuked
     void YM2203::reset()
     {
 	set_prescaler(prescaler_six);
-	last_samples = {0, 0};
+	last_samples.fill(0);
 
 	init_tables();
 	for (int ch = 0; ch < 3; ch++)

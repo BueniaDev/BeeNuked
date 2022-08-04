@@ -58,6 +58,18 @@ namespace beenuked
 	{
 	    attenutation_table[i] = int(65536.f / pow(10.f, (channel_att_table[i] / 20.0)));
 	}
+
+	for (int i = 0; i < 8; i++)
+	{
+	    waveform_table[i].fill(0);
+	}
+
+	for (int i = 0; i < 1024; i++)
+	{
+	    double mod = sin(((i * 2) + 1) * M_PI / 1024);
+
+	    waveform_table[0][i] = int16_t(mod * 32767);
+	}
     }
 
     int64_t YMF271::calc_slot_volume(opx_slot &slot)
@@ -212,6 +224,15 @@ namespace beenuked
 
 	    slot.step = uint32_t(st);
 	}
+	else
+	{
+	    st = double(2 * slot.freq_num) * pow_table[slot.block];
+	    st = st * multiple_table[slot.multiply] * 1024;
+
+	    st /= double(536870912 / 65536);
+
+	    slot.step = uint32_t(st);
+	}
     }
 
     void YMF271::write_fm_reg(int slot_num, int reg, uint8_t data)
@@ -296,6 +317,7 @@ namespace beenuked
 	    case 0xC:
 	    {
 		cout << "Setting algorithm register of slot " << dec << int(slot_num) << endl;
+		slot.algorithm = (data & 0xF);
 	    }
 	    break;
 	    case 0xD:
@@ -465,7 +487,7 @@ namespace beenuked
 	return opx_rom.at(addr);
     }
 
-    void YMF271::update_pcm(opx_slot &slot)
+    void YMF271::update_pcm(opx_group &group, opx_slot &slot)
     {
 	if (!slot.is_key_on)
 	{
@@ -512,10 +534,47 @@ namespace beenuked
 	{
 	    int ch_vol = ((final_volume * attenutation_table[slot.ch_level[i]]) >> 16);
 	    ch_vol = min(ch_vol, 65536);
-	    outputs[i] += ((sample * ch_vol) >> 16);
+	    group.outputs[i] += ((sample * ch_vol) >> 16);
 	}
 
 	slot.step_ptr += slot.step;
+    }
+
+    void YMF271::update_fm_2op(opx_group &group, opx_slot &slot1, opx_slot &slot3)
+    {
+	int algorithm = (slot1.algorithm & 0x3);
+
+	int combo = algorithm_2op_combinations[algorithm];
+
+	array<int64_t, 2> opout;
+	opout[0] = 0;
+	opout[1] = calculate_op(slot1, 0);
+
+	int64_t input = opout[((combo >> 1) & 0x1)];
+
+	int64_t phase_mod = ((input << 8) * 16);
+
+	int64_t phase_out = calculate_op(slot3, phase_mod);
+
+	for (int i = 0; i < 4; i++)
+	{
+	    int64_t output3 = (phase_out * attenutation_table[slot3.ch_level[i]]);
+	    group.outputs[i] += ((output3) >> 16);
+	}
+    }
+
+    int64_t YMF271::calculate_op(opx_slot &slot, int64_t input)
+    {
+	int64_t slot_output = 0;
+
+	int64_t env = calc_slot_volume(slot);
+
+	auto step_ptr = (((slot.step_ptr + input) >> 16) & 0x3FF);
+
+	slot_output = waveform_table[slot.waveform][step_ptr];
+	slot_output = ((slot_output * env) >> 16);
+	slot.step_ptr += slot.step;
+	return slot_output;
     }
 
     uint32_t YMF271::get_sample_rate(uint32_t clock_rate)
@@ -617,10 +676,10 @@ namespace beenuked
 
     void YMF271::clockchip()
     {
-	outputs.fill(0);
 	for (int i = 0; i < 12; i++)
 	{
 	    auto &slot_group = groups[i];
+	    slot_group.outputs.fill(0);
 
 	    if (slot_group.is_pfm && (slot_group.sync != 3))
 	    {
@@ -629,11 +688,21 @@ namespace beenuked
 
 	    switch (slot_group.sync)
 	    {
+		case 1:
+		{
+		    for (int j = 0; j < 2; j++)
+		    {
+			int slot1 = (i + (j * 12));
+			int slot3 = (i + ((j + 2) * 12));
+			update_fm_2op(slot_group, slots[slot1], slots[slot3]);
+		    }
+		}
+		break;
 		case 2:
 		{
 		    // TODO: Implement FM
 		    auto &slot = slots[(i + 36)];
-		    update_pcm(slot);
+		    update_pcm(slot_group, slot);
 		}
 		break;
 		case 3:
@@ -642,7 +711,7 @@ namespace beenuked
 		    {
 			int pcm_slot_num = (i + (j * 12));
 			auto &slot = slots[pcm_slot_num];
-			update_pcm(slot);
+			update_pcm(slot_group, slot);
 		    }
 		}
 		break;
@@ -657,9 +726,12 @@ namespace beenuked
 
 	for (int i = 0; i < 4; i++)
 	{
-	    int32_t old_sample = mixed_samples[i];
-	    int32_t new_sample = clamp((outputs[i] >> 2), -32768, 32767);
-	    mixed_samples[i] = (old_sample + new_sample);
+	    for (int j = 0; j < 12; j++)
+	    {
+		int32_t old_sample = mixed_samples[i];
+		int32_t new_sample = clamp((groups[j].outputs[i] >> 2), -32768, 32767);
+		mixed_samples[i] = (old_sample + new_sample);
+	    }
 	}
 
 	vector<int32_t> final_samples;

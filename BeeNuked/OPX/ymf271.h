@@ -93,6 +93,8 @@ namespace beenuked
 		int srcnote = 0;
 		int srcb = 0;
 
+		int algorithm = 0;
+
 		int ext_out = 0;
 		bool ext_enable = false;
 
@@ -109,14 +111,18 @@ namespace beenuked
 	    void key_on(opx_slot &slot);
 	    void key_off(opx_slot &slot);
 
+	    void update_fm_2op(opx_group &group, opx_slot &slot1, opx_slot &slot3);
+
+	    int64_t calculate_op(opx_slot &slot, int64_t input);
+
 	    void calculate_step(opx_slot &slot);
 
-	    void update_pcm(opx_slot &slot);
+	    void update_pcm(opx_group &group, opx_slot &slot);
 
 	    array<int, 16> attenutation_table;
 	    array<int, 128> total_level_table;
 
-	    array<int32_t, 4> outputs = {0, 0, 0, 0};
+	    array<array<int16_t, 1024>, 8> waveform_table;
 
 	    int64_t calc_slot_volume(opx_slot &slot);
 

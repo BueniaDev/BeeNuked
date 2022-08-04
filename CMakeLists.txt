@@ -19,11 +19,12 @@ add_subdirectory(BeeNuked/OPLL)
 add_subdirectory(BeeNuked/OPN2)
 add_subdirectory(BeeNuked/OPM)
 add_subdirectory(BeeNuked/OPN)
+add_subdirectory(BeeNuked/OPNA)
 add_subdirectory(BeeNuked/OPNB)
 add_subdirectory(BeeNuked/OPX)
 
 add_library(beenuked INTERFACE)
-target_link_libraries(beenuked INTERFACE ym2413 ym2612 ym2151 ym2610 ym2203 ym3526 ymf262 ymf271)
+target_link_libraries(beenuked INTERFACE ym2413 ym2612 ym2151 ym2608 ym2610 ym2203 ym3526 ymf262 ymf271)
 target_include_directories(beenuked INTERFACE ${BEENUKED_INCLUDE_DIR})
 add_library(libbeenuked ALIAS beenuked)
 
