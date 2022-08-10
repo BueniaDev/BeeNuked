@@ -38,7 +38,8 @@ namespace beenuked
     enum BeeNukedAccessType : int
     {
 	ADPCM = 0,
-	DeltaT = 1
+	DeltaT = 1,
+	IO = 2
     };
 
     class BeeNukedInterface
@@ -82,6 +83,12 @@ namespace beenuked
 		(void)type;
 		(void)addr;
 		(void)data;
+		return;
+	    }
+
+	    virtual void fireInterrupt(bool line)
+	    {
+		(void)line;
 		return;
 	    }
     };

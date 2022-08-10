@@ -561,24 +561,20 @@ namespace beenuked
     {
 	opm_status |= (1 << bit);
 
-	/*
-	if (irq_inter != NULL)
+	if (inter != NULL)
 	{
-	    irq_inter->handle_irq(true);
+	    inter->fireInterrupt(true);
 	}
-	*/
     }
 
     void YM2151::reset_status_bit(int bit)
     {
 	opm_status &= ~(1 << bit);
 
-	/*
-	if (irq_inter != NULL)
+	if (inter != NULL)
 	{
-	    irq_inter->handle_irq(false);
+	    inter->fireInterrupt(false);
 	}
-	*/
     }
 
     void YM2151::clock_timers()
@@ -590,52 +586,24 @@ namespace beenuked
 	    {
 		timera_counter += 1;
 	    }
-	    else
+	    else if (is_timera_enabled)
 	    {
-		if (is_timera_loaded)
-		{
-		    is_timera_loaded = false;
-		}
-		else if (is_timera_enabled)
-		{
-		    set_status_bit(0);
-		}
-
+		set_status_bit(0);
 		timera_counter = timera_freq;
 	    }
 	}
 
-	timerb_subcounter += 1;
-
-	if (timerb_subcounter == 16)
+	if (is_timerb_running)
 	{
-	    timerb_subcounter = 0;
-
-	    if (is_timerb_running)
+	    if (timerb_counter != 4095)
 	    {
-		if (timerb_counter != 255)
-		{
-		    timerb_counter += 1;
-		}
-		else
-		{
-		    if (is_timerb_loaded)
-		    {
-			is_timerb_loaded = false;
-		    }
-		    else if (is_timerb_enabled)
-		    {
-			set_status_bit(1);
-		    }
-
-		    timerb_counter = timerb_freq;
-		}
+		timerb_counter += 1;
 	    }
-	}
-	else if (is_timerb_loaded)
-	{
-	    is_timerb_loaded = false;
-	    timerb_counter = timerb_freq;
+	    else if (is_timerb_enabled)
+	    {
+		set_status_bit(1);
+		timerb_counter = (timerb_freq << 4);
+	    }
 	}
     }
 
@@ -708,14 +676,12 @@ namespace beenuked
 
 			if (testbit(data, 0) && !is_timera_running)
 			{
-			    timera_counter = 1023;
-			    is_timera_loaded = true;
+			    timera_counter = timera_freq;
 			}
 
 			if (testbit(data, 1) && !is_timerb_running)
 			{
-			    timerb_counter = 255;
-			    is_timerb_loaded = true;
+			    timerb_counter = (timerb_freq << 4);
 			}
 
 			is_timera_running = testbit(data, 0);
@@ -755,9 +721,9 @@ namespace beenuked
 		    {
 			int ct_reg = ((data >> 6) & 0x3);
 
-			if (port_func)
+			if (inter != NULL)
 			{
-			    port_func(ct_reg);
+			    inter->writeMemory(BeeNukedAccessType::IO, 0, ct_reg);
 			}
 
 			lfo_waveform = (data & 0x3);
@@ -891,13 +857,13 @@ namespace beenuked
 	    }
 	}
 
-	timera_counter = 1023;
-	timerb_counter = 255;
+	timera_counter = 0;
+	timerb_counter = 0;
     }
 
-    void YM2151::setPortCallback(beeopmfunc cb)
+    void YM2151::setInterface(BeeNukedInterface *cb)
     {
-	port_func = cb;
+	inter = cb;
     }
 
     uint8_t YM2151::readIO(int port)

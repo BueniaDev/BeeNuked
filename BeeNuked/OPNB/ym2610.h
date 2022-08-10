@@ -23,8 +23,6 @@
 
 namespace beenuked
 {
-    using opnb_irq_func = function<void(bool)>;
-
     class YM2610
     {
 	public:
@@ -40,11 +38,6 @@ namespace beenuked
 	    void writeDelta_ROM(uint32_t rom_size, uint32_t data_start, uint32_t data_len, vector<uint8_t> rom_data);
 	    void clockchip();
 	    vector<int32_t> get_samples();
-
-	    void set_irq_callback(opnb_irq_func cb)
-	    {
-		irq_handler = cb;
-	    }
 
 	    void writeADPCM_ROM(vector<uint8_t> rom_data)
 	    {
@@ -224,17 +217,13 @@ namespace beenuked
 	    void write_fmreg(bool is_port1, uint8_t reg, uint8_t data);
 
 	    uint16_t timera_freq = 0;
-	    uint8_t timerb_freq = 0;
-	    int timerb_subcounter = 0;
+	    uint16_t timerb_freq = 0;
 
 	    uint16_t timera_counter = 0;
-	    uint8_t timerb_counter = 0;
+	    uint16_t timerb_counter = 0;
 
 	    bool is_timera_running = false;
 	    bool is_timerb_running = false;
-
-	    bool is_timera_loaded = false;
-	    bool is_timerb_loaded = false;
 
 	    bool is_timera_enabled = false;
 	    bool is_timerb_enabled = false;
@@ -244,8 +233,6 @@ namespace beenuked
 
 	    void set_status_bit(int bit);
 	    void reset_status_bit(int bit);
-
-	    opnb_irq_func irq_handler;
 
 	    int32_t ssg_sample = 0;
 	    array<int32_t, 3> last_ssg_samples = {0, 0, 0};

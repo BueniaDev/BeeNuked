@@ -39,6 +39,7 @@ namespace beenuked
 	    uint32_t get_sample_rate(uint32_t clock_rate);
 	    void init(OPLType type = YM3526_Chip);
 	    void setInterface(BeeNukedInterface *cb);
+	    uint8_t readIO(int port);
 	    void writeIO(int port, uint8_t data);
 	    void clockchip();
 	    vector<int32_t> get_samples();
@@ -269,6 +270,7 @@ namespace beenuked
 	    void key_on(opl_operator &oper);
 	    void key_off(opl_operator &oper);
 
+	    void clock_timers();
 	    void clock_ampm();
 	    void clock_short_noise();
 	    void clock_noise(int cycle);
@@ -283,6 +285,20 @@ namespace beenuked
 	    void cym_output();
 
 	    bool is_rhythm_enabled = false;
+
+	    uint8_t opl_status = 0;
+
+	    uint8_t timer1_freq = 0;
+	    uint8_t timer2_freq = 0;
+
+	    uint16_t timer1_counter = 0;
+	    uint16_t timer2_counter = 0;
+
+	    bool is_timer1_running = false;
+	    bool is_timer2_running = false;
+
+	    bool is_timer1_disabled = false;
+	    bool is_timer2_disabled = false;
 
 	    #include "opl_tables.inl"
 	    #include "ym3014.inl"

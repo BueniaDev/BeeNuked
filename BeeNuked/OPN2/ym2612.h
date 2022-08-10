@@ -37,6 +37,8 @@ namespace beenuked
 
 	    uint32_t get_sample_rate(uint32_t clock_rate);
 	    void init(OPN2Type chiptype = YM2612_Chip);
+	    void setInterface(BeeNukedInterface *cb);
+	    uint8_t readIO(int port);
 	    void writeIO(int port, uint8_t data);
 	    void clockchip();
 	    vector<int32_t> get_samples();
@@ -57,6 +59,8 @@ namespace beenuked
 	    {
 		return (chip_type == YM2612_Chip);
 	    }
+
+	    BeeNukedInterface *inter = NULL;
 
 	    uint8_t chip_address = 0;
 	    bool is_addr_a1 = false;
@@ -86,17 +90,13 @@ namespace beenuked
 	    int32_t lfo_raw_pm = 0;
 
 	    uint16_t timera_freq = 0;
-	    uint8_t timerb_freq = 0;
-	    int timerb_subcounter = 0;
+	    uint16_t timerb_freq = 0;
 
 	    uint16_t timera_counter = 0;
-	    uint8_t timerb_counter = 0;
+	    uint16_t timerb_counter = 0;
 
 	    bool is_timera_running = false;
 	    bool is_timerb_running = false;
-
-	    bool is_timera_loaded = false;
-	    bool is_timerb_loaded = false;
 
 	    bool is_timera_enabled = false;
 	    bool is_timerb_enabled = false;

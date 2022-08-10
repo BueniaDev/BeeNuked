@@ -188,14 +188,12 @@ namespace beenuked
 
 		if (testbit(data, 0) && !is_timera_running)
 		{
-		    timera_counter = 1023;
-		    is_timera_loaded = true;
+		    timera_counter = timera_freq;
 		}
 
 		if (testbit(data, 1) && !is_timerb_running)
 		{
-		    timerb_counter = 255;
-		    is_timerb_loaded = true;
+		    timerb_counter = (timerb_freq << 4);
 		}
 
 		is_timera_running = testbit(data, 0);
@@ -690,9 +688,9 @@ namespace beenuked
     {
 	opnb_status = setbit(opnb_status, bit);
 
-	if (irq_handler)
+	if (inter != NULL)
 	{
-	    irq_handler(true);
+	    inter->fireInterrupt(true);
 	}
     }
 
@@ -700,9 +698,9 @@ namespace beenuked
     {
 	opnb_status = resetbit(opnb_status, bit);
 
-	if (irq_handler)
+	if (inter != NULL)
 	{
-	    irq_handler(false);
+	    inter->fireInterrupt(false);
 	}
     }
 
@@ -714,52 +712,24 @@ namespace beenuked
 	    {
 		timera_counter += 1;
 	    }
-	    else
+	    else if (is_timera_enabled)
 	    {
-		if (is_timera_loaded)
-		{
-		    is_timera_loaded = false;
-		}
-		else if (is_timera_enabled)
-		{
-		    set_status_bit(0);
-		}
-
+		set_status_bit(0);
 		timera_counter = timera_freq;
 	    }
 	}
 
-	timerb_subcounter += 1;
-
-	if (timerb_subcounter == 16)
+	if (is_timerb_running)
 	{
-	    timerb_subcounter = 0;
-
-	    if (is_timerb_running)
+	    if (timerb_counter != 4095)
 	    {
-		if (timerb_counter != 255)
-		{
-		    timerb_counter += 1;
-		}
-		else
-		{
-		    if (is_timerb_loaded)
-		    {
-			is_timerb_loaded = false;
-		    }
-		    else if (is_timerb_enabled)
-		    {
-			set_status_bit(1);
-		    }
-
-		    timerb_counter = timerb_freq;
-		}
+		timerb_counter += 1;
 	    }
-	}
-	else if (is_timerb_loaded)
-	{
-	    is_timerb_loaded = false;
-	    timerb_counter = timerb_freq;
+	    else if (is_timerb_enabled)
+	    {
+		set_status_bit(1);
+		timerb_counter = (timerb_freq << 4);
+	    }
 	}
     }
 
@@ -829,8 +799,8 @@ namespace beenuked
 	}
 
 	last_samples.fill(0);
-	timera_counter = 1023;
-	timerb_counter = 255;
+	timera_counter = 0;
+	timerb_counter = 0;
     }
 
     void YM2610::setInterface(BeeNukedInterface *cb)

@@ -34,9 +34,8 @@
 //
 // Although this core is getting closer and closer to completion, the following features are still
 // completely unimplemented:
-// I/O reads
-// CSM/Timers/IRQ functionality
-// ADPCM (Y8950 only)
+// CSM/IRQ functionality (related to timers)
+// ADPCM status reads (Y8950 only)
 //
 // However, work is continuing to be done on this core, so don't lose hope here!
 
@@ -401,23 +400,37 @@ namespace beenuked
 		    break;
 		    case 0x02:
 		    {
-			cout << "Setting timer 1 to value of " << dec << int(data) << endl;
+			timer1_freq = data;
 		    }
 		    break;
 		    case 0x03:
 		    {
-			cout << "Setting timer 2 to value of " << dec << int(data) << endl;
+			timer2_freq = data;
 		    }
 		    break;
 		    case 0x04:
 		    {
 			if (testbit(data, 7))
 			{
-			    cout << "Clearing IRQ flag" << endl;
+			    opl_status = 0;
+			    write_reg(0x04, 0x00);
 			}
 			else
 			{
-			    cout << "Setting IRQ mask/enabling timers" << endl;
+			    if (testbit(data, 0) && !is_timer1_running)
+			    {
+				timer1_counter = (timer1_freq << 2);
+			    }
+
+			    if (testbit(data, 1) && !is_timer2_running)
+			    {
+				timer2_counter = (timer2_freq << 4);
+			    }
+
+			    is_timer1_running = testbit(data, 0);
+			    is_timer2_running = testbit(data, 1);
+			    is_timer2_disabled = testbit(data, 5);
+			    is_timer1_disabled = testbit(data, 6);
 			}
 		    }
 		    break;
@@ -828,6 +841,35 @@ namespace beenuked
 	}
     }
 
+    void YM3526::clock_timers()
+    {
+	if (is_timer1_running)
+	{
+	    if (timer1_counter != 1023)
+	    {
+		timer1_counter += 1;
+	    }
+	    else if (!is_timer1_disabled)
+	    {
+		opl_status |= 0xC0;
+		timer1_counter = (timer1_freq << 2);
+	    }
+	}
+
+	if (is_timer2_running)
+	{
+	    if (timer2_counter != 4095)
+	    {
+		timer2_counter += 1;
+	    }
+	    else if (!is_timer2_disabled)
+	    {
+		opl_status |= 0xA0;
+		timer2_counter = (timer2_freq << 4);
+	    }
+	}
+    }
+
     void YM3526::clock_ampm()
     {
 	pm_clock = ((pm_clock + 512) & 0x3FFFFF);
@@ -1115,11 +1157,27 @@ namespace beenuked
 		oper.wave_sel = 0;
 	    }
 	}
+
+	timer1_counter = 1023;
+	timer2_counter = 255;
     }
 
     void YM3526::setInterface(BeeNukedInterface *cb)
     {
 	inter = cb;
+    }
+
+    uint8_t YM3526::readIO(int port)
+    {
+	uint8_t data = 0xFF;
+
+	if ((port & 1) == 0)
+	{
+	    data = opl_status;
+	}
+
+
+	return data;
     }
 
     void YM3526::writeIO(int port, uint8_t data)
@@ -1137,6 +1195,7 @@ namespace beenuked
     void YM3526::clockchip()
     {
 	env_clock += 1;
+	clock_timers();
 	clock_ampm();
 	clock_short_noise();
 
