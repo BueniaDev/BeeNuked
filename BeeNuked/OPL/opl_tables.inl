@@ -113,3 +113,9 @@ array<array<int8_t, 8>, 8> pm_table =
     0, 3, 6, 3, 0, -3, -6, -3, // fnum = 110xxxxxx
     0, 3, 7, 3, 0, -3, -7, -3, // fnum = 111xxxxxx
 };
+
+array<uint8_t, 8> adpcm_step_scale = 
+{
+    57, 57, 57, 57,
+    77, 102, 128, 153
+};

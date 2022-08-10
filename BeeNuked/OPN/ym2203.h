@@ -19,50 +19,10 @@
 #ifndef BEENUKED_YM2203
 #define BEENUKED_YM2203
 
-#include <iostream>
-#include <algorithm>
-#include <cstdint>
-#include <cmath>
-#include <array>
-#include <vector>
-using namespace std;
-
-#ifndef M_PI
-#define M_PI 3.1415926535
-#endif
+#include "utils.h"
 
 namespace beenuked
 {
-    class OPNSSGInterface
-    {
-	public:
-	    OPNSSGInterface()
-	    {
-
-	    }
-
-	    ~OPNSSGInterface()
-	    {
-
-	    }
-
-	    virtual void writeIO(int port, uint8_t data)
-	    {
-		cout << "Writing value of " << hex << int(data) << " to OPN SSG port of " << dec << int(port) << endl;
-	    }
-
-	    virtual void clockSSG()
-	    {
-		cout << "Clocking SSG..." << endl;
-	    }
-
-	    virtual array<int32_t, 3> getSamples()
-	    {
-		cout << "Fetching samples..." << endl;
-		return {0, 0, 0};
-	    }
-    };
-
     class YM2203
     {
 	public:
@@ -71,7 +31,7 @@ namespace beenuked
 
 	    uint32_t get_sample_rate(uint32_t clock_rate);
 	    void init();
-	    void set_ssg_interface(OPNSSGInterface *inter);
+	    void setInterface(BeeNukedInterface *cb);
 	    void writeIO(int port, uint8_t data);
 	    void clockchip();
 	    vector<int32_t> get_samples();
@@ -92,7 +52,7 @@ namespace beenuked
 		prescaler_two = 2
 	    };
 
-	    OPNSSGInterface *ssg_inter = NULL;
+	    BeeNukedInterface *inter = NULL;
 
 	    int prescaler_val = 0;
 

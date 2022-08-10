@@ -19,17 +19,7 @@
 #ifndef BEENUKED_YM2612
 #define BEENUKED_YM2612
 
-#include <iostream>
-#include <algorithm>
-#include <cstdint>
-#include <cmath>
-#include <array>
-#include <vector>
-using namespace std;
-
-#ifndef M_PI
-#define M_PI 3.1415926535
-#endif
+#include "utils.h"
 
 namespace beenuked
 {

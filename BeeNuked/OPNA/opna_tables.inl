@@ -16,40 +16,21 @@
     along with BeeNuked.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#ifndef BEENUKED_YMF262
-#define BEENUKED_YMF262
-
-#include "utils.h"
-
-namespace beenuked
+// ADPCM delta table
+array<uint16_t, 49> adpcm_steps = 
 {
-    class YMF262
-    {
-	public:
-	    YMF262();
-	    ~YMF262();
-
-	    uint32_t get_sample_rate(uint32_t clock_rate);
-	    void init();
-	    void writeIO(int port, uint8_t data);
-	    void clockchip();
-	    vector<int32_t> get_samples();
-
-	private:
-	    template<typename T>
-	    bool testbit(T reg, int bit)
-	    {
-		return ((reg >> bit) & 1) ? true : false;
-	    }
-
-	    void reset();
-
-	    uint8_t chip_address = 0;
-	    bool is_addr_a1 = false;
-
-	    void write_port0(uint8_t reg, uint8_t data);
-	    void write_port1(uint8_t reg, uint8_t data);
-    };
+     16,  17,   19,   21,   23,   25,   28,
+     31,  34,   37,   41,   45,   50,   55,
+     60,  66,   73,   80,   88,   97,  107,
+    118, 130,  143,  157,  173,  190,  209,
+    230, 253,  279,  307,  337,  371,  408,
+    449, 494,  544,  598,  658,  724,  796,
+    876, 963, 1060, 1166, 1282, 1411, 1552
 };
 
-#endif // BEENUKED_YMF262
+// ADPCM step increment values
+array<int8_t, 8> adpcm_steps_inc =
+{
+    -1, -1, -1, -1,
+     2,  5,  7,  9
+};

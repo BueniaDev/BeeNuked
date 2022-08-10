@@ -19,47 +19,10 @@
 #ifndef BEENUKED_YM2610
 #define BEENUKED_YM2610
 
-#include <iostream>
-#include <algorithm>
-#include <cstdint>
-#include <cmath>
-#include <array>
-#include <vector>
-#include <functional>
-using namespace std;
+#include "utils.h"
 
 namespace beenuked
 {
-    class OPNBSSGInterface
-    {
-	public:
-	    OPNBSSGInterface()
-	    {
-
-	    }
-
-	    ~OPNBSSGInterface()
-	    {
-
-	    }
-
-	    virtual void writeIO(int port, uint8_t data)
-	    {
-		cout << "Writing value of " << hex << int(data) << " to OPN SSG port of " << dec << int(port) << endl;
-	    }
-
-	    virtual void clockSSG()
-	    {
-		cout << "Clocking SSG..." << endl;
-	    }
-
-	    virtual array<int32_t, 3> getSamples()
-	    {
-		cout << "Fetching samples..." << endl;
-		return {0, 0, 0};
-	    }
-    };
-
     using opnb_irq_func = function<void(bool)>;
 
     class YM2610
@@ -69,7 +32,7 @@ namespace beenuked
 	    ~YM2610();
 
 	    uint32_t get_sample_rate(uint32_t clock_rate);
-	    void set_ssg_interface(OPNBSSGInterface *inter);
+	    void setInterface(BeeNukedInterface *inter);
 	    void reset();
 	    uint8_t readIO(int port);
 	    void writeIO(int port, uint8_t data);
@@ -112,7 +75,7 @@ namespace beenuked
 		return (reg & ~(1 << bit));
 	    }
 
-	    OPNBSSGInterface *ssg_inter = NULL;
+	    BeeNukedInterface *inter = NULL;
 
 	    uint32_t ssg_sample_index = 0;
 
@@ -188,6 +151,69 @@ namespace beenuked
 
 	    array<int32_t, 2> generate_adpcm_sample();
 
+	    enum opnb_oper_state : int
+	    {
+		Attack = 0,
+		Decay = 1,
+		Sustain = 2,
+		Release = 3,
+		Off = 4,
+	    };
+
+	    struct opnb_operator
+	    {
+		int freq_num = 0;
+		int block = 0;
+		int multiply = 0;
+		int detune = 0;
+		int total_level = 0;
+
+		int keycode = 0;
+		int key_scaling = 0;
+		int ksr_val = 0;
+		int attack_rate = 0;
+		int decay_rate = 0;
+		int sustain_rate = 0;
+		int sustain_level = 0;
+		int release_rate = 0;
+
+		uint32_t phase_counter = 0;
+		uint32_t phase_freq = 0;
+		uint32_t phase_output = 0;
+		bool is_keyon = false;
+
+		bool ssg_enable = false;
+		bool ssg_att = false;
+		bool ssg_alt = false;
+		bool ssg_hold = false;
+		bool ssg_inv = false;
+
+		int32_t env_output = 0;
+		int env_rate = 0;
+		opnb_oper_state env_state;
+
+		array<int32_t, 2> outputs = {0, 0};
+	    };
+
+	    struct opnb_channel
+	    {
+		int number = 0;
+		int freq_num = 0;
+		int block = 0;
+		int ch_mode = 0;
+
+		array<int, 3> oper_fnums = {0, 0, 0};
+		array<int, 3> oper_block = {0, 0, 0};
+		bool is_csm_keyon = false;
+
+		int feedback = 0;
+		int algorithm = 0;
+		int32_t output = 0;
+		array<opnb_operator, 4> opers;
+	    };
+
+	    array<opnb_channel, 6> channels;
+
 	    void write_port0(uint8_t reg, uint8_t data);
 	    void write_port1(uint8_t reg, uint8_t data);
 
@@ -195,6 +221,7 @@ namespace beenuked
 	    void write_delta_t(uint8_t reg, uint8_t data);
 
 	    void write_mode(uint8_t reg, uint8_t data);
+	    void write_fmreg(bool is_port1, uint8_t reg, uint8_t data);
 
 	    uint16_t timera_freq = 0;
 	    uint8_t timerb_freq = 0;

@@ -19,49 +19,10 @@
 #ifndef BEENUKED_YM2608
 #define BEENUKED_YM2608
 
-#include <iostream>
-#include <algorithm>
-#include <cstdint>
-#include <cmath>
-#include <array>
-using namespace std;
-
-#ifndef M_PI
-#define M_PI 3.1415926535
-#endif
+#include "utils.h"
 
 namespace beenuked
 {
-    class OPNASSGInterface
-    {
-	public:
-	    OPNASSGInterface()
-	    {
-
-	    }
-
-	    ~OPNASSGInterface()
-	    {
-
-	    }
-
-	    virtual void writeIO(int port, uint8_t data)
-	    {
-		cout << "Writing value of " << hex << int(data) << " to OPNA SSG port of " << dec << int(port) << endl;
-	    }
-
-	    virtual void clockSSG()
-	    {
-		cout << "Clocking SSG..." << endl;
-	    }
-
-	    virtual array<int32_t, 3> getSamples()
-	    {
-		cout << "Fetching samples..." << endl;
-		return {0, 0, 0};
-	    }
-    };
-
     class YM2608
     {
 	public:
@@ -70,7 +31,7 @@ namespace beenuked
 
 	    uint32_t get_sample_rate(uint32_t clk_rate);
 	    void init();
-	    void set_ssg_interface(OPNASSGInterface *inter);
+	    void setInterface(BeeNukedInterface *cb);
 
 	    uint8_t readIO(int port);
 	    void writeIO(int port, uint8_t data);
@@ -94,7 +55,7 @@ namespace beenuked
 		prescaler_two = 2
 	    };
 
-	    OPNASSGInterface *ssg_inter = NULL;
+	    BeeNukedInterface *inter = NULL;
 
 	    int prescaler_val = 0;
 
@@ -130,6 +91,46 @@ namespace beenuked
 	    void write_to_output(int32_t sum0, int32_t sum1, int32_t sum2, int divisor = 1);
 
 	    void update_prescaler();
+
+	    void clock_fm_and_adpcm();
+	    void output_fm_and_adpcm();
+
+	    void clock_adpcm();
+
+	    void write_adpcm(uint8_t reg, uint8_t data);
+
+	    struct opna_adpcm
+	    {
+		bool is_keyon = false;
+		bool is_pan_left = false;
+		bool is_pan_right = false;
+		int total_level = 0;
+		uint32_t start_address = 0;
+		uint32_t end_address = 0;
+		uint32_t current_address = 0;
+		bool is_high_nibble = false;
+		uint8_t current_byte = 0;
+		int32_t reg_accum = 0;
+		int32_t current_step = 0;
+		array<int32_t, 2> output = {0, 0};
+	    };
+
+	    int adpcm_total_level = 0;
+	    array<opna_adpcm, 6> adpcm_channels;
+
+	    uint32_t env_timer = 0;
+	    uint32_t env_clock = 0;
+	    uint32_t adpcm_ch_clock = 0;
+
+	    #include "ym2608_adpcm_rom.inl"
+	    #include "opna_tables.inl"
+
+	    void adpcm_key_on(opna_adpcm &channel);
+
+	    void clock_adpcm(opna_adpcm &channel);
+	    void output_adpcm(opna_adpcm &channel);
+
+	    uint8_t fetchADPCMROM(uint32_t address);
     };
 };
 

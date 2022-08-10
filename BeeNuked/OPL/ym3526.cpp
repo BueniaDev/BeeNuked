@@ -157,6 +157,228 @@ namespace beenuked
 	return exp_output;
     }
 
+    void YM3526::write_adpcm_reg(uint8_t reg, uint8_t data)
+    {
+	switch (reg)
+	{
+	    case 0x07:
+	    {
+		// cout << "Writing value of " << hex << int(data) << " to Y8950 sp-off register" << endl;
+
+		delta_t_channel.is_exec = testbit(data, 7);
+		delta_t_channel.is_record = testbit(data, 6);
+		delta_t_channel.is_external = testbit(data, 5);
+		delta_t_channel.is_repeat = testbit(data, 4);
+
+		if (testbit(data, 0))
+		{
+		    delta_t_channel.is_int_keyon = false;
+		}
+		else
+		{
+		    delta_t_channel.is_int_keyon = false;
+		    delta_t_channel.current_addr = 0xFFFFFFFF;
+
+		    if (delta_t_channel.is_exec)
+		    {
+			delta_t_channel.is_int_keyon = true;
+			delta_t_channel.current_pos = 0;
+			delta_t_channel.adpcm_buffer = 0;
+			delta_t_channel.num_nibbles = 0;
+			delta_t_channel.reg_accum = 0;
+			delta_t_channel.is_keyon = true;
+			delta_t_channel.adpcm_step = 127;
+		    }
+		}
+	    }
+	    break;
+	    case 0x08:
+	    {
+		// cout << "Writing value of " << hex << int(data) << " to Y8950 keyboard split/sample/da-ad register" << endl;
+		delta_t_channel.is_dram_8bit = testbit(data, 1);
+		delta_t_channel.is_rom_ram = testbit(data, 0);
+	    }
+	    break;
+	    case 0x09:
+	    {
+		delta_t_channel.start_address = ((delta_t_channel.start_address & 0xFF00) | data);
+	    }
+	    break;
+	    case 0x0A:
+	    {
+		delta_t_channel.start_address = ((delta_t_channel.start_address & 0xFF) | (data << 8));
+	    }
+	    break;
+	    case 0x0B:
+	    {
+		delta_t_channel.stop_address = ((delta_t_channel.stop_address & 0xFF00) | data);
+	    }
+	    break;
+	    case 0x0C:
+	    {
+		delta_t_channel.stop_address = ((delta_t_channel.stop_address & 0xFF) | (data << 8));
+	    }
+	    break;
+	    case 0x0D:
+	    {
+		cout << "Writing value of " << hex << int(data) << " to Y8950 prescale LSB" << endl;
+	    }
+	    break;
+	    case 0x0E:
+	    {
+		cout << "Writing value of " << hex << int(data) << " to Y8950 prescale MSB" << endl;
+	    }
+	    break;
+	    case 0x0F:
+	    {
+		cout << "Writing value of " << hex << int(data) << " to Y8950 APDCM data" << endl;
+	    }
+	    break;
+	    case 0x10:
+	    {
+		delta_t_channel.delta_n = ((delta_t_channel.delta_n & 0xFF00) | data);
+	    }
+	    break;
+	    case 0x11:
+	    {
+		delta_t_channel.delta_n = ((delta_t_channel.delta_n & 0xFF) | (data << 8));
+	    }
+	    break;
+	    case 0x12:
+	    {
+		delta_t_channel.ch_volume = data;
+	    }
+	    break;
+	}
+    }
+
+    bool YM3526::request_adpcm_data()
+    {
+	if (delta_t_channel.current_addr == 0xFFFFFFFF)
+	{
+	    latch_addresses();
+	}
+
+	if (!delta_t_channel.is_external)
+	{
+	    return false;
+	}
+
+	uint8_t data = readROM(delta_t_channel.current_addr);
+	append_buffer_byte(data);
+	// write_adpcm_reg(0xF, data);
+	return advance_delta_t_address();
+    }
+
+    bool YM3526::advance_delta_t_address()
+    {
+	int shift = get_delta_t_shift();
+	int mask = ((1 << shift) - 1);
+
+	assert(delta_t_channel.current_addr != 0xFFFFFFFF);
+
+	if ((delta_t_channel.current_addr & mask) == mask)
+	{
+	    uint32_t unit_addr = (delta_t_channel.current_addr >> shift);
+
+	    if (unit_addr == delta_t_channel.stop_address)
+	    {
+		return true;
+	    }
+	    else if (unit_addr == delta_t_channel.limit_address)
+	    {
+		delta_t_channel.current_addr = 0;
+		return false;
+	    }
+	}
+
+	delta_t_channel.current_addr = ((delta_t_channel.current_addr + 1) & 0xFFFFFF);
+	return false;
+    }
+
+    uint8_t YM3526::readROM(uint32_t address)
+    {
+	if (inter == NULL)
+	{
+	    return 0;
+	}
+
+	return inter->readMemory(BeeNukedAccessType::DeltaT, address);
+    }
+
+    void YM3526::clock_delta_t()
+    {
+	if (!delta_t_channel.is_exec || delta_t_channel.is_record || !delta_t_channel.is_int_keyon)
+	{
+	    delta_t_channel.prev_accum = delta_t_channel.reg_accum;
+	    delta_t_channel.current_pos = 0;
+	    delta_t_channel.is_int_keyon = false;
+	    return;
+	}
+
+	uint32_t current_pos = (delta_t_channel.current_pos + delta_t_channel.delta_n);
+	delta_t_channel.current_pos = uint16_t(current_pos);
+
+	if (current_pos < 0x10000)
+	{
+	    return;
+	}
+
+	if (delta_t_channel.num_nibbles != 0)
+	{
+	    uint8_t data = consume_nibbles(1);
+
+	    int32_t delta = (2 * (data & 0x7) + 1) * delta_t_channel.adpcm_step / 8;
+
+	    if (testbit(data, 3))
+	    {
+		delta = -delta;
+	    }
+
+	    delta_t_channel.prev_accum = delta_t_channel.reg_accum;
+	    delta_t_channel.reg_accum = clamp<int32_t>((delta_t_channel.reg_accum + delta), -32768, 32767);
+
+	    uint8_t step_scale = adpcm_step_scale.at(data & 0x7);
+
+	    delta_t_channel.adpcm_step = clamp(((delta_t_channel.adpcm_step * step_scale) / 64), 127, 24576);
+
+	    if (delta_t_channel.num_nibbles == 0)
+	    {
+		delta_t_channel.adpcm_step = 127;
+
+		// delta_t_channel.is_eos = true;
+
+		if (!delta_t_channel.is_repeat)
+		{
+		    delta_t_channel.is_int_keyon = false;
+		}
+	    }
+	}
+
+	if (delta_t_channel.is_int_keyon && (delta_t_channel.num_nibbles < 3))
+	{
+	    if (request_adpcm_data())
+	    {
+		consume_nibbles(3);
+
+		assert(delta_t_channel.num_nibbles == 1);
+
+		if (delta_t_channel.is_repeat)
+		{
+		    latch_addresses();
+		}
+	    }
+	}
+    }
+
+    void YM3526::delta_t_output()
+    {
+	int32_t result = ((delta_t_channel.prev_accum * int32_t((delta_t_channel.current_pos ^ 0xFFFF) + 1) + delta_t_channel.reg_accum * int32_t(delta_t_channel.current_pos)) >> 16);
+	result = ((result * delta_t_channel.ch_volume) >> 11);
+
+	delta_t_channel.adpcm_output = result;
+    }
+
     void YM3526::write_reg(uint8_t reg, uint8_t data)
     {
 	int reg_group = (reg & 0xF0);
@@ -165,10 +387,9 @@ namespace beenuked
 	switch (reg_group)
 	{
 	    case 0x00:
+	    case 0x10:
 	    {
-		int reg_select = (reg & 0xF);
-
-		switch (reg_select)
+		switch (reg_addr)
 		{
 		    case 0x01:
 		    {
@@ -202,17 +423,24 @@ namespace beenuked
 		    break;
 		    default: 
 		    {
-			if ((reg >= 0x07) && (reg <= 0x12))
+			if (inRangeEx(reg, 0x07, 0x12) || inRangeEx(reg, 0x15, 0x17))
 			{
 			    if (reg == 0x08)
 			    {
 				is_csm_mode = testbit(data, 7);
 				note_select = testbit(data, 6);
+
+				if (is_y8950())
+				{
+				    write_adpcm_reg(reg, ((data & 0xF) | 0x80));
+				}
+
+				return;
 			    }
 
 			    if (is_y8950())
 			    {
-				cout << "Writing value of " << hex << int(data) << " to Y8950 ADPCM register of " << hex << int(reg) << endl;
+				write_adpcm_reg(reg, data);
 			    }
 			}
 			else
@@ -423,7 +651,7 @@ namespace beenuked
 		ch_oper.wave_sel = (data & 0x3);
 	    }
 	    break;
-	    default: cout << "Unrecognized register write to register of " << hex << int(reg) << endl; break;
+	    default: cout << "Unrecognized register write to group register of " << hex << int(reg) << endl; break;
 	}
     }
 
@@ -889,19 +1117,9 @@ namespace beenuked
 	}
     }
 
-    void YM3526::writeROM(int rom_size, int data_start, int data_len, vector<uint8_t> rom_data)
+    void YM3526::setInterface(BeeNukedInterface *cb)
     {
-	if (!is_y8950())
-	{
-	    return;
-	}
-
-	cout << "Y8950 ROM" << endl;
-	cout << "ROM size: " << dec << rom_size << endl;
-	cout << "Data start: " << dec << data_start << endl;
-	cout << "Data length: " << dec << data_len << endl;
-	cout << "ROM data size: " << dec << rom_data.size() << endl;
-	cout << endl;
+	inter = cb;
     }
 
     void YM3526::writeIO(int port, uint8_t data)
@@ -990,6 +1208,16 @@ namespace beenuked
 	}
 
 	clock_noise(2);
+
+	if (is_y8950())
+	{
+	    clock_delta_t();
+	    delta_t_output();
+	}
+	else
+	{
+	    delta_t_channel.adpcm_output = 0;
+	}
     }
 
     vector<int32_t> YM3526::get_samples()
@@ -1000,6 +1228,8 @@ namespace beenuked
 	{
 	    output += channels[i].output;
 	}
+
+	output += delta_t_channel.adpcm_output;
 
 	int32_t sample = dac_ym3014(output);
 

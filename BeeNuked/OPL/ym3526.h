@@ -19,17 +19,7 @@
 #ifndef BEENUKED_YM3526
 #define BEENUKED_YM3526
 
-#include <iostream>
-#include <algorithm>
-#include <cstdint>
-#include <cmath>
-#include <array>
-#include <vector>
-using namespace std;
-
-#ifndef M_PI
-#define M_PI 3.1415926535
-#endif
+#include "utils.h"
 
 namespace beenuked
 {
@@ -48,15 +38,10 @@ namespace beenuked
 
 	    uint32_t get_sample_rate(uint32_t clock_rate);
 	    void init(OPLType type = YM3526_Chip);
+	    void setInterface(BeeNukedInterface *cb);
 	    void writeIO(int port, uint8_t data);
-	    void writeROM(int rom_size, int data_start, int data_len, vector<uint8_t> rom_data);
 	    void clockchip();
 	    vector<int32_t> get_samples();
-
-	    void writeROM(vector<uint8_t> rom_data)
-	    {
-		writeROM(rom_data.size(), 0, rom_data.size(), rom_data);
-	    }
 
 	private:
 	    template<typename T>
@@ -64,6 +49,15 @@ namespace beenuked
 	    {
 		return ((reg >> bit) & 1) ? true : false;
 	    }
+
+	    template<typename T>
+	    bool inRangeEx(T reg, int low, int high)
+	    {
+		int val = int(reg);
+		return ((val >= low) && (val <= high));
+	    }
+
+	    BeeNukedInterface *inter = NULL;
 
 	    void set_chip_type(OPLType type);
 	    void reset();
@@ -86,6 +80,90 @@ namespace beenuked
 	    bool is_y8950()
 	    {
 		return (chip_type == Y8950_Chip);
+	    }
+
+	    struct opl_delta_t
+	    {
+		bool is_exec = false;
+		bool is_record = false;
+		bool is_external = false;
+		bool is_repeat = false;
+		bool is_dram_8bit = false;
+		bool is_rom_ram = false;
+		uint32_t current_addr = 0;
+		uint32_t start_address = 0;
+		uint32_t stop_address = 0;
+		uint32_t limit_address = 0;
+		uint32_t current_pos = 0;
+		uint16_t delta_n = 0;
+		int32_t reg_accum = 0;
+		int32_t prev_accum = 0;
+		int adpcm_step = 0;
+		uint32_t adpcm_buffer = 0;
+		int num_nibbles = 0;
+		int ch_volume = 0;
+		bool is_keyon = false;
+		bool is_int_keyon = false;
+		int32_t adpcm_output = 0;
+	    };
+
+	    opl_delta_t delta_t_channel;
+
+	    void clock_delta_t();
+	    void delta_t_output();
+
+	    bool request_adpcm_data();
+
+	    void latch_addresses()
+	    {
+		delta_t_channel.current_addr = 0;
+
+		if (delta_t_channel.is_external)
+		{
+		    delta_t_channel.current_addr = (delta_t_channel.start_address << get_delta_t_shift());
+		}
+	    }
+
+	    uint8_t readROM(uint32_t address);
+
+	    void append_buffer_byte(uint8_t data)
+	    {
+		delta_t_channel.adpcm_buffer |= (data << (24 - 4 * delta_t_channel.num_nibbles));
+		delta_t_channel.num_nibbles += 2;
+	    }
+
+	    uint32_t consume_nibbles(uint8_t count)
+	    {
+		uint32_t result = (delta_t_channel.adpcm_buffer >> (32 - 4 * count));
+		delta_t_channel.adpcm_buffer <<= (4 * count);
+
+		if (delta_t_channel.num_nibbles > count)
+		{
+		    delta_t_channel.num_nibbles = (delta_t_channel.num_nibbles - count);
+		}
+		else
+		{
+		    delta_t_channel.num_nibbles = 0;
+		}
+
+		return result;
+	    }
+
+	    bool advance_delta_t_address();
+
+	    int get_delta_t_shift()
+	    {
+		if (delta_t_channel.is_rom_ram)
+		{
+		    return 5;
+		}
+
+		if (delta_t_channel.is_dram_8bit)
+		{
+		    return 5;
+		}
+
+		return 2;
 	    }
 
 	    enum opl_oper_state : int
@@ -172,6 +250,7 @@ namespace beenuked
 	    uint32_t fetch_sine_result(uint32_t phase, int wave_sel, bool &is_negate);
 
 	    void write_reg(uint8_t reg, uint8_t data);
+	    void write_adpcm_reg(uint8_t reg, uint8_t data);
 
 	    uint8_t chip_address = 0;
 

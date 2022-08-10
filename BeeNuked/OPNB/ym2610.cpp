@@ -59,10 +59,10 @@ namespace beenuked
 
     void YM2610::clock_and_add(int32_t &sum0, int32_t &sum1, int32_t &sum2, int scale)
     {
-	if (ssg_inter != NULL)
+	if (inter != NULL)
 	{
-	    ssg_inter->clockSSG();
-	    last_ssg_samples = ssg_inter->getSamples();
+	    inter->clockSSG();
+	    last_ssg_samples = inter->getSSGSamples();
 	}
 
 	add_last(sum0, sum1, sum2, scale);
@@ -106,9 +106,9 @@ namespace beenuked
 	    {
 		if (reg < 0x0E)
 		{
-		    if (ssg_inter != NULL)
+		    if (inter != NULL)
 		    {
-			ssg_inter->writeIO(1, data);
+			inter->writeSSG(1, data);
 		    }
 		}
 	    }
@@ -121,7 +121,7 @@ namespace beenuked
 	    break;
 	    default:
 	    {
-		cout << "Writing value of " << hex << (int)data << " to FM port 0 register of " << hex << (int)reg << endl;
+		write_fmreg(false, reg, data);
 	    }
 	    break;
 	}
@@ -135,7 +135,7 @@ namespace beenuked
 	}
 	else
 	{
-	    cout << "Writing value of " << hex << (int)data << " to FM port 1 register of " << hex << (int)reg << endl;
+	    write_fmreg(true, reg, data);
 	}
     }
 
@@ -307,12 +307,22 @@ namespace beenuked
 
     uint8_t YM2610::fetch_adpcm_rom(uint32_t address)
     {
-	return (address < adpcm_rom.size()) ? adpcm_rom.at(address) : 0;
+	if (inter == NULL)
+	{
+	    return 0;
+	}
+
+	return inter->readMemory(BeeNukedAccessType::ADPCM, address);
     }
 
     uint8_t YM2610::fetch_delta_t_rom(uint32_t address)
     {
-	return (address < delta_t_rom.size()) ? delta_t_rom.at(address) : 0;
+	if (inter == NULL)
+	{
+	    return 0;
+	}
+
+	return inter->readMemory(BeeNukedAccessType::DeltaT, address);
     }
 
     void YM2610::clock_adpcm_channel(opnb_adpcm &channel)
@@ -565,6 +575,117 @@ namespace beenuked
 	delta_t_output();
     }
 
+    void YM2610::write_fmreg(bool is_port1, uint8_t reg, uint8_t data)
+    {
+	int reg_group = (reg & 0xF0);
+	int reg_addr = (reg & 0xF);
+
+	int ch_num = (reg_addr & 0x3);
+
+	if (ch_num == 3)
+	{
+	    return;
+	}
+
+	if (is_port1)
+	{
+	    ch_num += 3;
+	}
+
+	int oper_reg = ((reg_addr >> 2) & 0x3);
+	array<int, 4> oper_table = {0, 2, 1, 3};
+	int oper_num = oper_table[oper_reg];
+
+	switch (reg_group)
+	{
+	    case 0x30:
+	    {
+		cout << "Writing to detune/multiply register of channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+	    }
+	    break;
+	    case 0x40:
+	    {
+		cout << "Writing to total-level register of channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+	    }
+	    break;
+	    case 0x50:
+	    {
+		cout << "Writing to key-scaling/attack-rate register of channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+	    }
+	    break;
+	    case 0x60:
+	    {
+		cout << "Writing to lfo-enable/decay-rate register of channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+	    }
+	    break;
+	    case 0x70:
+	    {
+		cout << "Writing to sustain-rate register of channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+	    }
+	    break;
+	    case 0x80:
+	    {
+		cout << "Writing to sustain-level/release-rate register of channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+	    }
+	    break;
+	    case 0x90:
+	    {
+		cout << "Writing to SSG register of channel " << dec << ch_num << ", operator " << dec << oper_num << endl;
+	    }
+	    break;
+	    case 0xA0:
+	    {
+		switch (oper_reg)
+		{
+		    case 0:
+		    {
+			cout << "Writing to frequency LSB register of channel " << dec << ch_num << endl;
+		    }
+		    break;
+		    case 1:
+		    {
+			cout << "Writing to frequency MSB/block register of channel " << dec << ch_num << endl;
+		    }
+		    break;
+		    case 2:
+		    {
+			if (!is_port1)
+			{
+			    cout << "Writing to frequency LSB register of channel 3, operator " << dec << ch_num << endl;
+			}
+		    }
+		    break;
+		    case 3:
+		    {
+			if (!is_port1)
+			{
+			    cout << "Writing to frequency MSB/block register of channel 3, operator " << dec << ch_num << endl;
+			}
+		    }
+		    break;
+		}
+	    }
+	    break;
+	    case 0xB0:
+	    {
+		switch (oper_reg)
+		{
+		    case 0:
+		    {
+			cout << "Writing to feedback/algorithm register of channel " << dec << ch_num << endl;
+		    }
+		    break;
+		    case 1:
+		    {
+			cout << "Writing to panning/PMS/AMS register of channel " << dec << ch_num << endl;
+		    }
+		    break;
+		}
+	    }
+	    break;
+	}
+    }
+
     void YM2610::set_status_bit(int bit)
     {
 	opnb_status = setbit(opnb_status, bit);
@@ -712,9 +833,9 @@ namespace beenuked
 	timerb_counter = 255;
     }
 
-    void YM2610::set_ssg_interface(OPNBSSGInterface *inter)
+    void YM2610::setInterface(BeeNukedInterface *cb)
     {
-	ssg_inter = inter;
+	inter = cb;
     }
 
     uint8_t YM2610::readIO(int port)
@@ -769,9 +890,9 @@ namespace beenuked
 
 		if (chip_address < 0xE)
 		{
-		    if (ssg_inter != NULL)
+		    if (inter != NULL)
 		    {
-			ssg_inter->writeIO(0, data);
+			inter->writeSSG(0, data);
 		    }
 		}
 	    }

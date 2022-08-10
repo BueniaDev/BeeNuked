@@ -166,10 +166,10 @@ namespace beenuked
 
     void YM2203::clock_and_add(int32_t &sum0, int32_t &sum1, int32_t &sum2, int scale)
     {
-	if (ssg_inter != NULL)
+	if (inter != NULL)
 	{
-	    ssg_inter->clockSSG();
-	    last_ssg_samples = ssg_inter->getSamples();
+	    inter->clockSSG();
+	    last_ssg_samples = inter->getSSGSamples();
 	}
 
 	add_last(sum0, sum1, sum2, scale);
@@ -268,9 +268,9 @@ namespace beenuked
 	    // SSG writes
 	    case 0x00:
 	    {
-		if (ssg_inter != NULL)
+		if (inter != NULL)
 		{
-		    ssg_inter->writeIO(1, data);
+		    inter->writeSSG(1, data);
 		}
 	    }
 	    break;
@@ -942,9 +942,9 @@ namespace beenuked
 	return (clock_rate / 12);
     }
 
-    void YM2203::set_ssg_interface(OPNSSGInterface *inter)
+    void YM2203::setInterface(BeeNukedInterface *cb)
     {
-	ssg_inter = inter;
+	inter = cb;
     }
 
     void YM2203::init()
@@ -981,9 +981,9 @@ namespace beenuked
 
 	    if (chip_address < 0x10)
 	    {
-		if (ssg_inter != NULL)
+		if (inter != NULL)
 		{
-		    ssg_inter->writeIO(0, data);
+		    inter->writeSSG(0, data);
 		}
 	    }
 

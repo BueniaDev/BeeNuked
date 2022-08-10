@@ -76,6 +76,180 @@ namespace beenuked
 	}
     }
 
+    void YM2608::write_adpcm(uint8_t reg, uint8_t data)
+    {
+	switch (reg)
+	{
+	    case 0x10:
+	    {
+		if (!testbit(data, 7))
+		{
+		    for (int ch = 0; ch < 6; ch++)
+		    {
+			if (testbit(data, ch))
+			{
+			    adpcm_key_on(adpcm_channels[ch]);
+			    adpcm_channels[ch].is_keyon = true;
+			}
+		    }
+		}
+		else
+		{
+		    for (int ch = 0; ch < 6; ch++)
+		    {
+			if (testbit(data, ch))
+			{
+			    adpcm_channels[ch].is_keyon = false;
+			}
+		    }
+		}
+	    }
+	    break;
+	    case 0x11:
+	    {
+		adpcm_total_level = (data & 0x3F);
+	    }
+	    break;
+	    default:
+	    {
+		if ((reg >= 0x18) && (reg <= 0x1D))
+		{
+		    int ch_num = (reg - 0x18);
+		    adpcm_channels[ch_num].is_pan_left = testbit(data, 7);
+		    adpcm_channels[ch_num].is_pan_right = testbit(data, 6);
+		    adpcm_channels[ch_num].total_level = (data & 0x1F);
+		}
+	    }
+	    break;
+	}
+    }
+
+    void YM2608::adpcm_key_on(opna_adpcm &channel)
+    {
+	channel.current_address = channel.start_address;
+	channel.is_high_nibble = false;
+	channel.current_byte = 0;
+	channel.reg_accum = 0;
+	channel.current_step = 0;
+    }
+
+    void YM2608::clock_adpcm()
+    {
+	int num_adpcm_channels = 4;
+	adpcm_ch_clock += 1;
+
+	if (adpcm_ch_clock == 2)
+	{
+	    adpcm_ch_clock = 0;
+	    num_adpcm_channels = 6;
+	}
+
+	for (int ch = 0; ch < num_adpcm_channels; ch++)
+	{
+	    clock_adpcm(adpcm_channels[ch]);
+	}
+    }
+
+    uint8_t YM2608::fetchADPCMROM(uint32_t address)
+    {
+	return (address < opna_adpcm_rom.size()) ? opna_adpcm_rom.at(address) : 0;
+    }
+
+    void YM2608::clock_adpcm(opna_adpcm &channel)
+    {
+	if (!channel.is_keyon)
+	{
+	    channel.reg_accum = 0;
+	    return;
+	}
+
+	int adpcm_data = 0;
+
+	if (!channel.is_high_nibble)
+	{
+	    uint32_t end = (channel.end_address + 1);
+
+	    if (((channel.current_address ^ end) & 0xFFFFF) == 0)
+	    {
+		channel.is_keyon = false;
+		channel.reg_accum = 0;
+		return;
+	    }
+
+	    channel.current_byte = fetchADPCMROM(channel.current_address++);
+	    adpcm_data = (channel.current_byte >> 4);
+	}
+	else
+	{
+	    adpcm_data = (channel.current_byte & 0xF);
+	}
+
+	channel.is_high_nibble = !channel.is_high_nibble;
+
+	int32_t delta = (2 * (adpcm_data & 0x7) + 1) * adpcm_steps[channel.current_step] / 8;
+
+	if (testbit(adpcm_data, 3))
+	{
+	    delta = -delta;
+	}
+
+	channel.reg_accum = ((channel.reg_accum + delta) & 0xFFF);
+	int8_t step_inc = adpcm_steps_inc[(adpcm_data & 0x7)];
+	channel.current_step = clamp<int32_t>((channel.current_step + step_inc), 0, 48);
+    }
+
+    void YM2608::output_adpcm(opna_adpcm &channel)
+    {
+	int vol = ((channel.total_level ^ 0x1F) + (adpcm_total_level ^ 0x3F));
+
+	if (vol >= 63)
+	{
+	    return;
+	}
+
+	int8_t mul = (15 - (vol & 0x7));
+	uint8_t shift = (5 + (vol >> 3));
+
+	int16_t value = (((int16_t(channel.reg_accum << 4) * mul) >> shift) & ~3);
+
+	channel.output[0] = (channel.is_pan_left) ? value : 0;
+	channel.output[1] = (channel.is_pan_right) ? value : 0;
+    }
+
+    void YM2608::clock_fm_and_adpcm()
+    {
+	env_timer += 1;
+
+	if (env_timer == 3)
+	{
+	    env_timer = 0;
+	    env_clock += 1;
+	    clock_adpcm();
+	}
+
+	for (auto &channel : adpcm_channels)
+	{
+	    output_adpcm(channel);
+	}
+    }
+
+    void YM2608::output_fm_and_adpcm()
+    {
+	array<int32_t, 2> mixed_samples = {0, 0};
+	for (auto &channel : adpcm_channels)
+	{
+	    for (int i = 0; i < 2; i++)
+	    {
+		mixed_samples[i] += channel.output[i];
+	    }
+	}
+
+	mixed_samples[0] = clamp<int32_t>(mixed_samples[0], -32768, 32767);
+	mixed_samples[1] = clamp<int32_t>(mixed_samples[1], -32768, 32767);
+
+	copy(mixed_samples.begin(), mixed_samples.end(), (last_samples.begin() + 1));
+    }
+
     void YM2608::configure_ssg_resampler(uint8_t out_samples, uint8_t src_samples)
     {
 	switch ((out_samples * 10) + src_samples)
@@ -120,10 +294,10 @@ namespace beenuked
 
     void YM2608::clock_and_add(int32_t &sum0, int32_t &sum1, int32_t &sum2, int scale)
     {
-	if (ssg_inter != NULL)
+	if (inter != NULL)
 	{
-	    ssg_inter->clockSSG();
-	    last_ssg_samples = ssg_inter->getSamples();
+	    inter->clockSSG();
+	    last_ssg_samples = inter->getSSGSamples();
 	}
 
 	add_last(sum0, sum1, sum2, scale);
@@ -197,15 +371,15 @@ namespace beenuked
 	{
 	    case 0x00:
 	    {
-		if (ssg_inter != NULL)
+		if (inter != NULL)
 		{
-		    ssg_inter->writeIO(1, data);
+		    inter->writeSSG(1, data);
 		}
 	    }
 	    break;
 	    case 0x10:
 	    {
-		cout << "Writing value of " << hex << int(data) << " to YM2608 ADPCM-A register of " << hex << int(reg) << endl;
+		write_adpcm(reg, data);
 	    }
 	    break;
 	    default:
@@ -223,6 +397,19 @@ namespace beenuked
 
     void YM2608::init()
     {
+	// Configure ADPCM percussion sounds
+	adpcm_channels[0].start_address = 0x0000;
+	adpcm_channels[0].end_address = 0x01BF;
+	adpcm_channels[1].start_address = 0x01C0;
+	adpcm_channels[1].end_address = 0x043F;
+	adpcm_channels[2].start_address = 0x0440;
+	adpcm_channels[2].end_address = 0x1B7F;
+	adpcm_channels[3].start_address = 0x1B80;
+	adpcm_channels[3].end_address = 0x1CFF;
+	adpcm_channels[4].start_address = 0x1D00;
+	adpcm_channels[4].end_address = 0x1F7F;
+	adpcm_channels[5].start_address = 0x1F80;
+	adpcm_channels[5].end_address = 0x1FFF;
 	reset();
     }
 
@@ -232,9 +419,9 @@ namespace beenuked
 	last_samples.fill(0);
     }
 
-    void YM2608::set_ssg_interface(OPNASSGInterface *inter)
+    void YM2608::setInterface(BeeNukedInterface *cb)
     {
-	ssg_inter = inter;
+	inter = cb;
     }
 
     uint8_t YM2608::readIO(int port)
@@ -255,9 +442,9 @@ namespace beenuked
 
 		if (chip_address < 0x10)
 		{
-		    if (ssg_inter != NULL)
+		    if (inter != NULL)
 		    {
-			ssg_inter->writeIO(0, data);
+			inter->writeSSG(0, data);
 		    }
 		}
 		else if ((chip_address >= 0x2D) && (chip_address <= 0x2F))
@@ -297,6 +484,12 @@ namespace beenuked
 
     void YM2608::clockchip()
     {
+	if ((ssg_sample_index % fm_samples_per_output) == 0)
+	{
+	    clock_fm_and_adpcm();
+	    output_fm_and_adpcm();
+	}
+
 	if (resample)
 	{
 	    resample();
